@@ -148,46 +148,37 @@ for (j in 1:simno){
       fire_scar_old <- fire_scar
       total_fire_old <- total_fire
       
-      #4.b) Sample initial fire level parameters
+      #4.b) Sample fire size
       
-      #Sample fire size
       if (restart == F){
         target_fire <- sample(target_distr_sub, size = 1)
       }
-      
-      #Sample ignition cell
+
+      #4.b) Sample ignition cell
       ini_pburn <- 0 #sum of fire probabilities in adjacent cells, ignition cell only selected when it is > 0 (at least one burnable cell)
       while(ini_pburn == 0){
         
-        if (restart == F){ #Ignition probabilty based on probability map
-          ic <- sample(inds[which(!is.na(p))], size = 1 , prob = p[which(!is.na(p))])
-        }
-        
-        if (restart == T){ #when a fire is resampled, all unburned cells
-          ic <- sample(inds[which(!is.na(p))], size = 1)
-          restart = F
-        }
-        
-        sc <- adjacent(maskrast, cells = ic, pairs = F, directions = 8)
+        ic <- sample(inds[which(!is.na(p))], size = 1 , prob = p[which(!is.na(p))]) #Ignition probabilty based on probability map
+        sc <- adjacent(maskrast, cells = ic, pairs = F, directions = 8) #test if adjacent cells are burnable
         ini_pburn <- sum(na.omit(p[sc]))
       }
       
-      ac <- ic
+      #Update fire scar, probability map achieved fire size and achieved total fire size
+      fire_scar[ic] <- 2
+      p[ic] <- 0
+      fire_achieved <- cell_size[ic]
+      total_fire <- total_fire + cell_size[ic]
       
-      fire_scar[ac] <- 2
-      p[ac] <- 0
+      #4.c) Other initial fire level parameters and definitions
+      ac <- ic #Ignition cell becomes first active cell
+      rc <- numeric() # vector for storage of fire front
       
+      #####################
+      #5.a) CELL LEVEL#####
+      #####################
       
-      fire_achieved <- cell_size[ac]
-      total_fire <- total_fire + cell_size[ac]
-      rc <- numeric()
-      
-      #iteration counter
-      it <- 0
-      
-      ##fire loop
       while(fire_achieved < target_fire & total_fire < target_year){
-        if (it > 0){
+        if (fire_achieved > cell_size[ic]){
           sc <- adjacent(maskrast, cells = ac, pairs = F, directions = 8)
         }
         
@@ -242,9 +233,6 @@ for (j in 1:simno){
         #update fire prob and fire scar maps
         p[ac] <- 0
         fire_scar[ac] <- 1
-        
-        #increment iteration counter
-        it <- it + 1
       }
       #store fires
       if(restart == F){
@@ -277,11 +265,13 @@ head(fs.df)
 str(sim_data)
 plot(fires$fire_achieved ~ fires$target_fire)
 test <- maskrast
-values(test) <- tsf.df[,30]
+values(test) <- p
 plot(test)
+length(p[is.na(p)])
+length(fire_scar[is.na(fire_scar)])
 length(fire_scar[which(fire_scar%in%c(1,2))])/length(fire_scar[!is.na(fire_scar)])
 sum(na.omit(cell_size[which(fire_scar%in%c(1))]))/sum(na.omit(cell_size))
-
+fire.scar.ts[[20]]
 total_fire/target_year
 length(fire_scar)
 values(test) <- fs.df[,30]

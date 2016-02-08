@@ -89,17 +89,14 @@ detach(clim.stats)
 rm(year, temp)
 attach(all)
 
-#use years with a lot of data
 #data points per year
 fn <- tapply(area, year, function (x) length(x))
-
 area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
 years.subs <- year[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
 
 #extract person moments
 library(PearsonDS)
 MM <-tapply(area.subs, years.subs, function(x) empMoments(x))
-dpearson(x, moments = empMoments(x))
 
 #Analyse pearson moments for correlation
 mean <- vector(); variance <- vector() ;skewness <- vector(); kurtosis <- vector()
@@ -126,17 +123,12 @@ pearsFUN <- function(x){
 
 pearsfuncs<- tapply(area.subs, years.subs, function(x) pearsFUN(x))
 
-lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
-lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
-total <- tapply(area.subs, years.subs, function(x) sum(x))
-#unfitted lnorm parameters
 lnscale <- function(x){
   variance <- (sd(x))^2
   mean <- mean(x)
   scale <- sqrt(log(1+ variance/mean^2))
   return(scale)
 }
-
 lnmean <- function(x){
   variance <- (sd(x))^2
   mean <- mean(x)
@@ -144,6 +136,12 @@ lnmean <- function(x){
   loc <- log(mean) - (0.5 * scale^2)
   return(loc)
 }
+lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
+lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
+total <- tapply(area.subs, years.subs, function(x) sum(x))
+#unfitted lnorm parameters
+
+
 summary(lm(lnmeans ~ total))
 plot(lnmeans ~ total)
   
