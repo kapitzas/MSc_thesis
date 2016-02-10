@@ -1,5 +1,6 @@
 require(msm)
-rm(prec,year)
+require("EnvStats")
+rm(prec,year, temp)
 detach(clim.stats)
 detach(all)
 attach(clim.stats)
@@ -11,7 +12,7 @@ attach(clim.stats)
 #1.a) Preprocessing precipitation reference data
 
 #87 - 2005 reference
-reference_prec <- prec[year > 1987 & year < 2005]
+reference_prec <- prec[year >= 1987 & year <= 2005]
 mean_prec <- mean(reference_prec)
 high_prec_30 <- mean_prec *108/100
 low_prec_30 <- mean_prec * 89/100
@@ -42,7 +43,7 @@ cell_size <- cell_size[] #cell sizes in km^2
 maskrast <- raster(paste0(path.fire, "maskraster.asc"))
 study_a <- maskrast[] #study area
 inds <- 1:length(maskrast[]) #cell indices
-
+yr_inds <- tapply(area.subs, years.subs)
 #########################
 #2) SIMULATION LEVEL#####
 #########################
@@ -131,13 +132,11 @@ for (j in 1:simno){
       }
       
       #Sample time step fire size distribitution from empiric distriubtions
-      t <- sample(1:length(lnmeans), 1) # choose distribution
-      ml <- lnmeans[t] #mean log
-      sdl <- lnscales[t] # sd log
-      target_distr <- rlnorm(10000,ml, sdl) # sample target distr
-      target_distr_sub <- target_distr[target_distr < max(all$area) & target_distr > min(all$area)] #limit distribution to min max (will move the mean by a little bit)
-    }
-    
+      loc <- predict(lnmeans_mod, newdata = data.frame(cumu.subs = precip)) + rnorm(1, 0, sd(residuals(lnmeans_mod)))
+      scale <- predict(lnscales_mod, newdata = data.frame(cumu.subs = precip)) + rnorm(1, 0, sd(residuals(lnscales_mod)))
+      target_distr <- rlnorm(10000,loc, scale)
+      target_distr_sub <- target_distr[target_distr < max(area.subs[which(yr_inds == t)]) & target_distr > min(area.subs[which(yr_inds == t)])] #limit distribution to min max (will move the mean by a little bit)
+       }
     #####################
     #4.) FIRE LEVEL######
     #####################
@@ -152,7 +151,7 @@ for (j in 1:simno){
       
       if (restart == F){
         target_fire <- sample(target_distr_sub, size = 1)
-      }
+        }
 
       #4.b) Sample ignition cell
       ini_pburn <- 0 #sum of fire probabilities in adjacent cells, ignition cell only selected when it is > 0 (at least one burnable cell)
@@ -174,40 +173,46 @@ for (j in 1:simno){
       rc <- numeric() # vector for storage of fire front
       
       #####################
-      #5.a) CELL LEVEL#####
+      #5. CELL LEVEL#####
       #####################
-      
       while(fire_achieved < target_fire & total_fire < target_year){
+        
+        #5.a) Determine spreading cells
+        
+        #Identify all cells that are adjacent to current active cells
         if (fire_achieved > cell_size[ic]){
           sc <- adjacent(maskrast, cells = ac, pairs = F, directions = 8)
         }
         
-        #filter cells inside study area as spreading cells
+        #Only cells inside study area
         sc <- sc[!is.na(study_a[sc])]
         
-        #burn cells based on mfi/tsf ratio,e.g. cells for which tsf approaches mfi are most likelz to burn
+        #5.b) Burn cells
+        #Based on mfi/tsf ratio,e.g. cells for which tsf approaches mfi are most likely to burn
         burn <- ifelse(runif(length(sc),0,1) < p[sc], 1, 0)
-        ac <- sc[which(burn == 1)]
+        ac <- sc[which(burn == 1)] # burned cells become new active cells
         
-        #store burning front for potential restart of the fire
+        #Store burning front for potential restart of the fire
         rc <- c(rc, sc[which(burn == 0 & p[sc] > 0)])
         
-        #restart fire if prematurely off, based on p
-        #will be the case when: fire did not spread to spreading cells although it can
+        #5.c) Restart a fire if no spreading cells burned:
+        
+        #Fire did not spread to spreading cells although they can potentially burn: Restart from current spreading cells
         if (length(ac) == 0 && length(sc) > 1 && sum(p[sc]) > 0){
           ac <- sample(sc, size = 1, p = p[sc])
         }
         
-        # fire did not spread to spreading cells because none of them can burn: restart from rc when rc > 1
+        #Fire did not spread to spreading cells, because none of them can burn: restart from fire front (rc) when rc > 1
         if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) > 0 && length(rc) > 1){
           ac <- sample(rc, size = 1, p = p[rc])
         }
-        # fire did not spread to spreading cells, because none of them can burn: restart from rc if rc = 1
+        
+        #Fire did not spread to spreading cells, because none of them can burn: restart from fire front when rc = 1
         if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) > 0 && length(rc) == 1){
           ac <- rc
         }
         
-        #fire did not spread to spreading cells, because none of them can burn and none of the rc can burn: fire stops and new fire is started
+        #fire did not spread to spreading cells, because none of them can burn and fire front can't burn: fire stops and new fire is started
         if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) == 0){
           not_complete <- not_complete + 1
           total_fire <- total_fire_old
@@ -218,34 +223,40 @@ for (j in 1:simno){
           break
         }
         
-        #number of cells to burn till target fire
-        diff <- target_fire - fire_achieved
-        no <- ceiling(diff/mean(cell_size[sc]))
+        #5.d) Decrement currently active cells to stay within target fire size
         
-        #randomly choose current active cells, to which fire will not spread
+        #number of cells to burn till target fire size is reached
+        diff <- target_fire - fire_achieved # how much area is left to burn
+        no <- ceiling(diff/mean(cell_size[ac])) # approximitely how many cells will that make
+        
+        #Choose current active cells, to which fire will not spread, based on p (+ 0.00001 to assure sufficient positive probabilities)
         if(no < length(ac)){
           ac <- sample(ac, size = no, prob = 1-p[ac] + 0.00001, replace = T)
         }
         
+        #5.e) Update fire parameters after each itereation 
         fire_achieved <- fire_achieved + sum(cell_size[ac])
         total_fire <- total_fire + sum(cell_size[ac])
-        
-        #update fire prob and fire scar maps
         p[ac] <- 0
         fire_scar[ac] <- 1
       }
-      #store fires
-      if(restart == F){
-        fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip))
-      }
-      cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, "mean size:", mean(target_distr_sub), not_complete, "\r")
+      
+      ##########################
+      #6.STORAGE OF SIM DATA####
+      ##########################
+      
+      #6.a) fire level data
+      fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire/target_year * 100))
+      cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, not_complete, "\r")
     }
     
-    #update fs
+    #6.b) Time-step level data
+    
+    #fire scar
     fs.df <- cbind(fs.df, fire_scar)
     names(fs.df)[which(names(fs.df) == "fire_scar")] <- paste0("fs_s", yr)
     
-    #update tsf
+    #time since fire
     tsf_cur <- tsf_cur +1
     tsf_cur[which(fire_scar == 1)] <- 1
     tsf.df <- cbind(tsf.df, tsf_cur)
@@ -254,11 +265,9 @@ for (j in 1:simno){
     yr <- yr + 1
   }
   
+  #6.c) Simulation run level data
   sim_data[[j]] <- list(fires, tsf.df, fs.df)
 }
-
-
-
 
 plot(sim_data[[1]][[1]]$fire_achieved ~ sim_data[[1]][[1]]$target_fire)
 head(fs.df)
