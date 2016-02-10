@@ -1,6 +1,10 @@
 require(raster)
 require(grid)
 require(rgdal)
+library(ggplot2)
+library(fitdistrplus)
+library(MASS)
+library(PearsonDS)
 
 #####Climate Data#####
 climate.path <- "/Users/Simon/Studium/MSC/Masterarbeit/data/climate/BOM/"
@@ -56,30 +60,15 @@ rm(year, temp)
 detach(clim.stats)
 detach(all)
 attach(all)
-wide_area <- 5503.63
-total <- round((tapply(area, year, function(x) sum(x)))/wide_area * 100, digits = 3)
 
+wide_area <- 5503.63
+
+total <- round((tapply(area, year, function(x) sum(x)))/wide_area * 100, digits = 3)
 cumu <- tapply(cumu_prec, year, function(x) unique(x))
 
-#model
+#MODEL
 mod_total <- lm(log(total) ~ cumu)
 summary(mod_total)
-df <- data.frame(total, cumu)
-
-n.cumu <- seq(0,2300, length.out = 50)
-preds <- predict(mod_total, newdata = data.frame("cumu" = n.cumu), se = T)
-
-n.df <- data.frame("cumu" = n.cumu, "fit" = exp(preds$fit), "se1" = exp(preds$fit + preds$se.fit), "se2" = exp(preds$fit - preds$se.fit))
-
-#plot of data points, fit line and standard errors
-  ggplot(df, aes(cumu, total)) +
-    geom_point() +
-  labs(y = "Total Area Burned [km^2]", x = "Cumulative Rain") +
-  geom_line(aes(cumu, fit), n.df, linetype = 1) +
-  geom_line(aes(cumu, se1), n.df, linetype = 2) +
-  geom_line(aes(cumu, se2), n.df, linetype = 2)
-
-plot(residuals(mod_total))
   
 ######################################################
 ####PREC VS FIRE SIZES####
@@ -89,40 +78,46 @@ detach(clim.stats)
 rm(year, temp)
 attach(all)
 
-#data points per year
+#Subsets of years iwth sufficient data
 fn <- tapply(area, year, function (x) length(x))
 area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
 years.subs <- year[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
+cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))])
+total.subs <- tapply(area.subs, years.subs, function(x) sum(x))
 
-#extract person moments
-library(PearsonDS)
+#PEARSON
+#Extract person moments
 MM <-tapply(area.subs, years.subs, function(x) empMoments(x))
 
-#Analyse pearson moments for correlation
-mean <- vector(); variance <- vector() ;skewness <- vector(); kurtosis <- vector()
+#Analyse pearson moments for correlation with prec
+MMs <- matrix(nrow = length(MM), ncol = 4)
 for (i in 1:length(MM)){
-  mean[i] <- MM[[i]][[1]]
-  variance[i] <- MM[[i]][[2]]
-  skewness[i] <- MM[[i]][[3]]
-  kurtosis[i] <- MM[[i]][[4]]
+  MMs[i,1] <- MM[[i]][[1]]
+  MMs[i,2] <- MM[[i]][[2]]
+  MMs[i,3] <- MM[[i]][[3]]
+  MMs[i,4] <- MM[[i]][[4]]
 }
 
-#isolate years with data
-cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))])
+summary(lm(cumu.subs ~ MMs[,1]))
+summary(lm(cumu.subs ~ MMs[,2]))
+summary(lm(cumu.subs ~ MMs[,3]))
+summary(lm(cumu.subs ~ MMs[,4]))
 
-#loglik and pars for Pearson functions
+#loglik of Pearson fits
 loglikpears <- function(x){
   temp <- pearsonMSC(x)
   max(temp$logLik)
 }
 
+#function definition
 pearsFUN <- function(x){
   temp <- pearsonMSC(x)
   temp$Best$AIC
 }
 
-pearsfuncs<- tapply(area.subs, years.subs, function(x) pearsFUN(x))
 
+#LOGNORM
+#exctract parameters
 lnscale <- function(x){
   variance <- (sd(x))^2
   mean <- mean(x)
@@ -136,72 +131,64 @@ lnmean <- function(x){
   loc <- log(mean) - (0.5 * scale^2)
   return(loc)
 }
+
+#unfitted lnorm pars
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
-total <- tapply(area.subs, years.subs, function(x) sum(x))
-#unfitted lnorm parameters
 
+lnmeans_mod <- lm(lnmeans ~ cumu.subs)
+summary(lnmeans_mod)
+lnscales_mod <- lm(lnscales ~ cumu.subs)
+summary(lnscales_mod)
+#fitted lnorm pars
+lnparsfitted <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm")$estimate)
 
-summary(lm(lnmeans ~ total))
-plot(lnmeans ~ total)
-  
-  fitdist(x, "lnorm" , start = list(loc, scale))
+#NORM WITH LOGS
+#unfitted norm pars
+meanlog <- tapply(log(area.subs), years.subs, mean)
+sdlog <- tapply(log(area.subs), years.subs, sd)
+
+summary(lm(meanlog ~ cumu.subs))
+summary(lm(sdlog ~ cumu.subs))
+
+#fitted norm pars truncated
+norm.trunc <- matrix(ncol = 4, nrow = 17)
+j <- tapply(area.subs, years.subs)
+minmax <- tapply(log(area.subs), years.subs, function(x) c(min(x), max(x)))
+for (i in 1:length(minmax)){
+  temp <- fitdistr(log(area.subs[which(j == i)]), "normal",  lower = minmax[[i]][1], upper = minmax[[i]][2], method = "mle")
+  estimate <- temp$estimate
+  loglik <- temp$loglik
+  norm.trunc[i,] <- c(unique(years.subs)[i], estimate[1], estimate[2], loglik)
 }
-x <- area
-curve(dlnorm(x, loc[1], scale[1]))
-?fitdist
 
-library(ggplot2)
-library(fitdistrplus)
-library(MASS)
+summary(lm(norm.trunc[,2] ~ cumu.subs))
+summary(lm(norm.trunc[,3] ~ cumu.subs))
+
 
 #calculate loglikelihood for each dist
-Lnorm <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
-Lgamma <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "gamma", start=list(shape = 1, rate = 0.1),lower=0.1)))
-Lpears<- tapply(area.subs, years.subs, function(x) loglikpears(x))
+ll_pears<- tapply(area.subs, years.subs, function(x) loglikpears(x))
+ll_lnorm <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
+ll_norm_trunc <- tapply(log(area.subs), years.subs, function(x) logLik(fitdist(x, "norm")))
+ll_gamma <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "gamma", start=list(shape = 1, rate = 0.1),lower=0.1)))
+ll_norm_trunc <- norm.trunc[,4]
+norm - Lnorm_trunc
 
 
-Lnorm2 <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
+df <- data.frame(unique(years.subs), Lnorm,Lpears, Lnorm_trunc,  Lgamma, norm)
+require(reshape2)
+df <- melt(df, id.vars = "unique.years.subs.")
 
-#Pearson moments
-df <- data.frame(cumu.subs, mean, variance, skewness, kurtosis, lmean = log(mean), lvariance = log(variance))
-
-a <- ggplot(df, aes(x = cumu.subs, y = mean)) + 
-  geom_point(size = 1) +
-  labs(x="Cumulative precipitation", y="Mean")
-
-b <- ggplot(df, aes(x = cumu.subs, y =variance)) + 
-  geom_point(size = 1) +
-  labs(x="Cumulative precipitation", y="Variance")
-
-c <- ggplot(df, aes(x = cumu.subs, y =skewness)) + 
-  geom_point(size = 1) +
-  labs(x="Cumulative precipitation", y="Skewness")
-
-d <- ggplot(df, aes(x = cumu.subs, y =kurtosis)) + 
-  geom_point(size = 1) +
-  labs(x="Cumulative precipitation", y="Kurtosis")
-
-grid.newpage()
-pushViewport(viewport(layout = grid.layout(2,2)))
-loc <- function(x,y){
-  viewport(layout.pos.row = x, layout.pos.col = y)
-}
-print(a, vp = loc(1,1))
-print(b, vp = loc(1,2))
-print(c, vp = loc(2,1))
-print(d, vp = loc(2,2))
-
-df <- data.frame(unique(years.subs), Lnorm,Lpears,  Lgamma, mean, variance, skewness, kurtosis, cumu)
-ggplot(data = df) +
-  geom_point(aes(x = df[,1], y = Lnorm, col = "lognorm")) +
-  geom_point(aes(df[,1], y = Lgamma, col = "gamma")) +
-  geom_point(aes(df[,1], y = Lpears, col = "pearson")) +
+ggplot(data = df, aes(x = unique.years.subs., y = value, group = variable)) +
+  geom_point(aes(shape=variable, col = variable)) +
   theme(legend.title=element_blank()) +
   labs(x = "year", y = "LogLik")
 
 #it seems like fitted preason or fitted log normal are best. Since fitted lognormal means that the function parameters are likelihood maximised, we can't calculate parameters from empiric mean and sd and have to correlate MLE with prec
-
+plot(Lnorm)
+points(Lnorm_trunc, col = "red")
+sum(Lnorm)
+sum(Lnorm_trunc)
 lnormfuncs <- tapply(area.subs, years.subs, function(x) fitdistr(x, "lognormal"))
 meanlogs <- vector()
 sdlogs <- vector()

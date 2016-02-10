@@ -135,8 +135,9 @@ for (j in 1:simno){
       loc <- predict(lnmeans_mod, newdata = data.frame(cumu.subs = precip)) + rnorm(1, 0, sd(residuals(lnmeans_mod)))
       scale <- predict(lnscales_mod, newdata = data.frame(cumu.subs = precip)) + rnorm(1, 0, sd(residuals(lnscales_mod)))
       target_distr <- rlnorm(10000,loc, scale)
-      target_distr_sub <- target_distr[target_distr < max(area.subs[which(yr_inds == t)]) & target_distr > min(area.subs[which(yr_inds == t)])] #limit distribution to min max (will move the mean by a little bit)
-       }
+      target_distr_sub <- target_distr[target_distr < max(area.subs) & target_distr > min(area.subs)] #limit distribution to min max (will move the mean by a little bit)
+    mean(target_distr_sub)
+    }
     #####################
     #4.) FIRE LEVEL######
     #####################
@@ -148,22 +149,25 @@ for (j in 1:simno){
       total_fire_old <- total_fire
       
       #4.b) Sample fire size
-      
       if (restart == F){
         target_fire <- sample(target_distr_sub, size = 1)
-        }
+      }
+      
+      if (restart == T){
+        restart <- F
+      }
 
       #4.b) Sample ignition cell
       ini_pburn <- 0 #sum of fire probabilities in adjacent cells, ignition cell only selected when it is > 0 (at least one burnable cell)
       while(ini_pburn == 0){
         
         ic <- sample(inds[which(!is.na(p))], size = 1 , prob = p[which(!is.na(p))]) #Ignition probabilty based on probability map
-        sc <- adjacent(maskrast, cells = ic, pairs = F, directions = 8) #test if adjacent cells are burnable
-        ini_pburn <- sum(na.omit(p[sc]))
+        pairs <- adjacent(maskrast, cells = ic, pairs = T, directions = 8) #test if adjacent cells are burnable
+        ini_pburn <- sum(na.omit(p[pairs[,2]]))
       }
       
       #Update fire scar, probability map achieved fire size and achieved total fire size
-      fire_scar[ic] <- 2
+      fire_scar[ic] <- 1
       p[ic] <- 0
       fire_achieved <- cell_size[ic]
       total_fire <- total_fire + cell_size[ic]
@@ -181,15 +185,22 @@ for (j in 1:simno){
         
         #Identify all cells that are adjacent to current active cells
         if (fire_achieved > cell_size[ic]){
-          sc <- adjacent(maskrast, cells = ac, pairs = F, directions = 8)
+          pairs <- adjacent(maskrast, cells = ac, pairs = T, directions = 8)
         }
         
-        #Only cells inside study area
-        sc <- sc[!is.na(study_a[sc])]
+        #Filter cells in study area
+        pairs <- pairs[!is.na(study_a[pairs[,2]]),]
+        sc <- pairs[,2]
+        
         
         #5.b) Burn cells
+        
+        #adjust for distance (diagonal cells are further away, thus less likely to burn)
+        dists <- distance(layer = maskrast, from = pairs[,1], to = pairs[,2])
+        dists <- min(dists)/dists
+
         #Based on mfi/tsf ratio,e.g. cells for which tsf approaches mfi are most likely to burn
-        burn <- ifelse(runif(length(sc),0,1) < p[sc], 1, 0)
+        burn <- ifelse(runif(length(sc),0,1) < (p[sc] * dists), 1, 0)
         ac <- sc[which(burn == 1)] # burned cells become new active cells
         
         #Store burning front for potential restart of the fire
@@ -246,7 +257,7 @@ for (j in 1:simno){
       ##########################
       
       #6.a) fire level data
-      fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire/target_year * 100))
+      fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire, target_year))
       cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, not_complete, "\r")
     }
     
@@ -260,22 +271,35 @@ for (j in 1:simno){
     tsf_cur <- tsf_cur +1
     tsf_cur[which(fire_scar == 1)] <- 1
     tsf.df <- cbind(tsf.df, tsf_cur)
+    names(tsf.df)[which(names(tsf.df) == "tsf_cur")] <- paste0("tsf_s", yr)
     
     #increment year
     yr <- yr + 1
   }
   
   #6.c) Simulation run level data
-  sim_data[[j]] <- list(fires, tsf.df, fs.df)
+  sim_data[[j]] <- list("fires" = fires, "tsf" = tsf.df, "fs" = fs.df)
 }
-
+str(sim_data)
 plot(sim_data[[1]][[1]]$fire_achieved ~ sim_data[[1]][[1]]$target_fire)
 head(fs.df)
 str(sim_data)
 plot(fires$fire_achieved ~ fires$target_fire)
 test <- maskrast
-values(test) <- p
+head(fires)
+
+fires
+i = 20
+values(test) <- fs.df[,i]
 plot(test)
+i <- i + 1
+summary(fires$fire_achieved)
+fires$target_fire[which(fires$yr == 2024)]
+summary(fires$fire_achieved)
+summary(fires$target_fire)
+  head(fires)
+  fires$target_fire
+hist()
 length(p[is.na(p)])
 length(fire_scar[is.na(fire_scar)])
 length(fire_scar[which(fire_scar%in%c(1,2))])/length(fire_scar[!is.na(fire_scar)])
@@ -283,7 +307,7 @@ sum(na.omit(cell_size[which(fire_scar%in%c(1))]))/sum(na.omit(cell_size))
 fire.scar.ts[[20]]
 total_fire/target_year
 length(fire_scar)
-values(test) <- fs.df[,30]
+values(test) <- fs.df$fs_s2016
 head(fs.df)
 plot(test)
 head(tsf.df)
