@@ -55,3 +55,70 @@ lines(cumu.subs, predict(lnscales_mod))
 
 plot(lnscales ~lnmeans)
 plot(residuals(lnscales_mod) ~ residuals(lnmeans_mod))
+
+###QQPLOTS
+
+#plot qq plots of fitted gamma functions
+require(grid)
+dat <- tapply(area.subs, years.subs, function(x) list(x))
+params <- tapply(area.subs, years.subs, function(x) fitdist(x, "gamma", method = "mme"))
+xloc <- c(1,2,3,1,2,3,1,2,3,1,2,3,1,2,3,1,2,3)
+yloc <- c(1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,6,6,6)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(6,3)))
+
+for (i in 1:length(dat)){
+  df <- data.frame("y" = dat[[i]])
+  x <- quantile(params[[i]], c(0.25, 0.75))
+  x <- unlist(x$quantiles)
+  y <- quantile(df$y, c(0.25, 0.75))
+  slope <- diff(y)/diff(x)
+  int <- y - slope * x
+  a <- ggplot(df, aes(sample = y)) +
+    stat_qq(distribution = qgamma, dparams = as.list(params[[i]]$estimate)) +
+    geom_abline(slope = slope, intercept = int, lty = 2, col = "red") +
+    labs(x = names(params[i]), y = "")
+  print(a, vp = viewport(layout.pos.row = yloc[i], layout.pos.col = xloc[i]))
+}
+
+#plot qq plots of fitted lnorm functions
+require(grid)
+dat <- tapply(area.subs, years.subs, function(x) list(x))
+params <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm"))
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(6,3)))
+for (i in 1:length(dat)){
+  df <- data.frame("y" = dat[[i]])
+  x <- quantile(params[[i]], c(0.25, 0.75))
+  x <- unlist(x$quantiles)
+  y <- quantile(df$y, c(0.25, 0.75))
+  slope <- diff(y)/diff(x)
+  int <- y - slope * x
+  a <- ggplot(df, aes(sample = y)) +
+    stat_qq(distribution = qlnorm, dparams = as.list(params[[i]]$estimate)) +
+    geom_abline(slope = slope, intercept = int, lty = 2, col = "red") +
+    labs(x = names(params[i]), y = "")
+  print(a, vp = viewport(layout.pos.row = yloc[i], layout.pos.col = xloc[i]))
+}
+
+
+#plot qq plots of unfitted lnorm functions
+require(grid)
+dat <- tapply(area.subs, years.subs, function(x) list(x))
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(6,3)))
+for (i in 1:length(dat)){
+  df <- data.frame("y" = dat[[i]])
+  x <- qlnorm(c(0.25, 0.75), sdlog = lnscales[i], meanlog = lnmeans[[i]])
+  y <- quantile(df$y, c(0.25, 0.75))
+  slope <- diff(y)/diff(x)
+  int <- y - slope * x
+  a <- ggplot(df, aes(sample = y)) +
+    stat_qq(distribution = qlnorm, dparams = as.list(params[[i]]$estimate)) +
+    geom_abline(slope = slope, intercept = int, lty = 2, col = "red") +
+    labs(x = names(params[i]), y = "")
+  print(a, vp = viewport(layout.pos.row = yloc[i], layout.pos.col = xloc[i]))
+}
+
+dev.off()

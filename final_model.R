@@ -5,9 +5,9 @@ detach(clim.stats)
 detach(all)
 attach(clim.stats)
 
-####################################################
-#1) Preprocessing of data and simulation definitions
-####################################################
+########################################################
+#1.) Preprocessing of data and simulation definitions####
+########################################################
 
 #1.a) Preprocessing precipitation reference data
 
@@ -35,17 +35,19 @@ decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
 #1.b) Initial parameter values and definitions for entire simulation
 
 simle <- 75 #simulation length
-simno <- 10 #number of simulations
+simno <- 1 #number of simulations
 sim_data <- list() #data frame for all sim data
 output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out"
-cell_size <- raster(paste0(path.fire, "cell_size.asc"))
+cell_size <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/cell_size.asc")
 cell_size <- cell_size[] #cell sizes in km^2
-maskrast <- raster(paste0(path.fire, "maskraster.asc"))
+maskrast <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/maskraster.asc")
 study_a <- maskrast[] #study area
 inds <- 1:length(maskrast[]) #cell indices
 yr_inds <- tapply(area.subs, years.subs)
+elev <- raster(paste0("/Users/Simon/Studium/MSC/Masterarbeit/data//Elevation/elevation9secNH.asc"))
+elev <- elev[]
 #########################
-#2) SIMULATION LEVEL#####
+#2.) SIMULATION LEVEL#####
 #########################
 for (j in 1:simno){
   
@@ -136,13 +138,11 @@ for (j in 1:simno){
       scale <- predict(lnscales_mod, newdata = data.frame(cumu.subs = precip)) + rnorm(1, 0, sd(residuals(lnscales_mod)))
       target_distr <- rlnorm(10000,loc, scale)
       target_distr_sub <- target_distr[target_distr < max(area.subs) & target_distr > min(area.subs)] #limit distribution to min max (will move the mean by a little bit)
-    mean(target_distr_sub)
     }
     #####################
     #4.) FIRE LEVEL######
     #####################
     while(total_fire < target_year){
-      
       #4.a) Storage of probability map, fire scar map and total achieved fire size before a new fire is started
       p_old <- p
       fire_scar_old <- fire_scar
@@ -177,9 +177,9 @@ for (j in 1:simno){
       rc <- numeric() # vector for storage of fire front
       
       #####################
-      #5. CELL LEVEL#####
+      #5.) CELL LEVEL######
       #####################
-      while(fire_achieved < target_fire & total_fire < target_year){
+      while(fire_achieved < target_fire && total_fire < target_year){
         
         #5.a) Determine spreading cells
         
@@ -196,11 +196,17 @@ for (j in 1:simno){
         #5.b) Burn cells
         
         #adjust for distance (diagonal cells are further away, thus less likely to burn)
-        dists <- distance(layer = maskrast, from = pairs[,1], to = pairs[,2])
-        dists <- min(dists)/dists
-
+        dists_a <- dist(from = pairs[,1], to = pairs[,2], ncol = ncol, nrow = nrow)
+        d <- min(dists_a)/dists_a
+        
+        #adjust for slope
+        elevDiff <- (elev[pairs[,1]] - elev[pairs[,2]])/1000
+        slopes <- elevDiff/dists_a
+        slopes <- clamp(slopes, -1, 1)
+        s <- 1 + slopes
+        
         #Based on mfi/tsf ratio,e.g. cells for which tsf approaches mfi are most likely to burn
-        burn <- ifelse(runif(length(sc),0,1) < (p[sc] * dists), 1, 0)
+        burn <- ifelse(runif(length(sc),0,1) < (p[sc] * d * s), 1, 0)
         ac <- sc[which(burn == 1)] # burned cells become new active cells
         
         #Store burning front for potential restart of the fire
@@ -237,7 +243,7 @@ for (j in 1:simno){
         #5.d) Decrement currently active cells to stay within target fire size
         
         #number of cells to burn till target fire size is reached
-        diff <- target_fire - fire_achieved # how much area is left to burn
+        diff <- ifelse(target_year - total_fire < target_fire - fire_achieved, target_year - total_fire,target_fire - fire_achieved) # how much area is left to burn
         no <- ceiling(diff/mean(cell_size[ac])) # approximitely how many cells will that make
         
         #Choose current active cells, to which fire will not spread, based on p (+ 0.00001 to assure sufficient positive probabilities)
@@ -246,19 +252,19 @@ for (j in 1:simno){
         }
         
         #5.e) Update fire parameters after each itereation 
-        fire_achieved <- fire_achieved + sum(cell_size[ac])
-        total_fire <- total_fire + sum(cell_size[ac])
-        p[ac] <- 0
         fire_scar[ac] <- 1
+        p[ac] <- 0
+        fire_achieved <- sum(cell_size[which(fire_scar - fire_scar_old == 1)])
+        total_fire <- sum(cell_size[which(fire_scar == 1)])
+        cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, not_complete, "\r")
       }
-      
+        
       ##########################
-      #6.STORAGE OF SIM DATA####
+      #6.)STORAGE OF SIM DATA###
       ##########################
       
       #6.a) fire level data
       fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire, target_year))
-      cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, not_complete, "\r")
     }
     
     #6.b) Time-step level data
@@ -280,40 +286,29 @@ for (j in 1:simno){
   #6.c) Simulation run level data
   sim_data[[j]] <- list("fires" = fires, "tsf" = tsf.df, "fs" = fs.df)
 }
-str(sim_data)
-plot(sim_data[[1]][[1]]$fire_achieved ~ sim_data[[1]][[1]]$target_fire)
-head(fs.df)
-str(sim_data)
-plot(fires$fire_achieved ~ fires$target_fire)
-test <- maskrast
-head(fires)
+head(fires, 100)
 
-fires
-i = 20
-values(test) <- fs.df[,i]
+test <- maskrast
+i <- 25
+
+sum(na.omit(cell_size))
+
+plot(fs.df$fs_s2025)
+
+sum(cell_size[which(fs.df$fs_s2016 == 1)])
+
+fires$fire_achieved[which(fires$yr == 2016)]
+sum(cell_size[which(fire_scar == 1)])
+
+head(fires)
+i = 1
+values(test) <- tsf.df[,i]
 plot(test)
-i <- i + 1
-summary(fires$fire_achieved)
-fires$target_fire[which(fires$yr == 2024)]
-summary(fires$fire_achieved)
-summary(fires$target_fire)
-  head(fires)
-  fires$target_fire
-hist()
-length(p[is.na(p)])
-length(fire_scar[is.na(fire_scar)])
-length(fire_scar[which(fire_scar%in%c(1,2))])/length(fire_scar[!is.na(fire_scar)])
-sum(na.omit(cell_size[which(fire_scar%in%c(1))]))/sum(na.omit(cell_size))
-fire.scar.ts[[20]]
-total_fire/target_year
+i = i + 1
+sum(cell_size[which(p == 0)])
+total_fire
 length(fire_scar)
-values(test) <- fs.df$fs_s2016
-head(fs.df)
-plot(test)
-head(tsf.df)
-mean(fires$fire_achieved[which(fires$year == 2059)])
-#writeRaster(paste0(output,"/", tsf, sim, year), format = "ascii")
-fire_scar.map[which(fire_scar.map[] == 0)] <- NA
-plot(fire_scar.ts[[25]])
-plot(fire_scar.map, col = c("red", "black"), add = T, legend = F)
-length(tsf.df)
+i <- i + 1
+fires[which(fires$fire_achieved == max(fires$fire_achieved)),]
+sum(fires$fire_achieved[which(fires$yr == 2031)])
+unique(fires$yr)

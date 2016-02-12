@@ -1,3 +1,5 @@
+
+require(reshape2)
 require(raster)
 require(grid)
 require(rgdal)
@@ -53,6 +55,17 @@ pos <- match(all$year, clim.stats$year)
 all$cumu_prec <- clim.stats$yycumu[pos]
 all$temp <- clim.stats$temp[pos]
 
+#LOAD TSF DATA
+path.tsf <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/tsf rasterized 1970-2015"
+tsf.ts <- stack()
+files <- list.files(path.tsf, pattern = "*.asc$")
+n <- substr(files,5,9)
+for (i in 1:length(files)){
+  r.tsf <- raster(paste(path.tsf, files[i], sep = "/"))
+  r.tsf@data@names <- paste0("tsf_", n[i])
+  tsf.ts <- stack(tsf.ts, r.tsf)
+}
+
 ######################################################
 ###PREC VS TOTAL AREA BURNED
 ######################################################
@@ -103,43 +116,21 @@ summary(lm(cumu.subs ~ MMs[,2]))
 summary(lm(cumu.subs ~ MMs[,3]))
 summary(lm(cumu.subs ~ MMs[,4]))
 
-#loglik of Pearson fits
-loglikpears <- function(x){
-  temp <- pearsonMSC(x)
-  max(temp$logLik)
-}
 
-#function definition
-pearsFUN <- function(x){
-  temp <- pearsonMSC(x)
-  temp$Best$AIC
-}
 
 
 #LOGNORM
-#exctract parameters
-lnscale <- function(x){
-  variance <- (sd(x))^2
-  mean <- mean(x)
-  scale <- sqrt(log(1+ variance/mean^2))
-  return(scale)
-}
-lnmean <- function(x){
-  variance <- (sd(x))^2
-  mean <- mean(x)
-  scale <- sqrt(log(1+ variance/mean^2))
-  loc <- log(mean) - (0.5 * scale^2)
-  return(loc)
-}
 
 #unfitted lnorm pars
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
 
+#models
 lnmeans_mod <- lm(lnmeans ~ cumu.subs)
 summary(lnmeans_mod)
 lnscales_mod <- lm(lnscales ~ cumu.subs)
 summary(lnscales_mod)
+
 #fitted lnorm pars
 lnparsfitted <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm")$estimate)
 
@@ -151,32 +142,40 @@ sdlog <- tapply(log(area.subs), years.subs, sd)
 summary(lm(meanlog ~ cumu.subs))
 summary(lm(sdlog ~ cumu.subs))
 
-#fitted norm pars truncated
-norm.trunc <- matrix(ncol = 4, nrow = 17)
-j <- tapply(area.subs, years.subs)
-minmax <- tapply(log(area.subs), years.subs, function(x) c(min(x), max(x)))
-for (i in 1:length(minmax)){
-  temp <- fitdistr(log(area.subs[which(j == i)]), "normal",  lower = minmax[[i]][1], upper = minmax[[i]][2], method = "mle")
-  estimate <- temp$estimate
-  loglik <- temp$loglik
-  norm.trunc[i,] <- c(unique(years.subs)[i], estimate[1], estimate[2], loglik)
-}
+# #fitted norm pars truncated
+# norm.trunc <- matrix(ncol = 4, nrow = 17)
+# j <- tapply(area.subs, years.subs)
+# minmax <- tapply(log(area.subs), years.subs, function(x) c(min(x), max(x)))
+# for (i in 1:length(minmax)){
+#   temp <- fitdistr(log(area.subs[which(j == i)]), "normal",  lower = minmax[[i]][1], upper = minmax[[i]][2], method = "mle")
+#   estimate <- temp$estimate
+#   loglik <- temp$loglik
+#   norm.trunc[i,] <- c(unique(years.subs)[i], estimate[1], estimate[2], loglik)
+# }
 
-summary(lm(norm.trunc[,2] ~ cumu.subs))
-summary(lm(norm.trunc[,3] ~ cumu.subs))
+#summary(lm(norm.trunc[,2] ~ cumu.subs))
+#summary(lm(norm.trunc[,3] ~ cumu.subs))
 
 
 #calculate loglikelihood for each dist
 ll_pears<- tapply(area.subs, years.subs, function(x) loglikpears(x))
-ll_lnorm <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
-ll_norm_trunc <- tapply(log(area.subs), years.subs, function(x) logLik(fitdist(x, "norm")))
+
+ll_lnorm_fit <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
+
+ll_norm <- tapply(log(area.subs), years.subs, function(x) logLik(fitdist(x, "norm")))
+
 ll_gamma <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "gamma", start=list(shape = 1, rate = 0.1),lower=0.1)))
+
 ll_norm_trunc <- norm.trunc[,4]
-norm - Lnorm_trunc
 
+ll_lnorm_unfit <- numeric()
+for (i in 1:length(lnscales)){
+  t <- which(years.subs == unique(years.subs)[i])
+  ll_lnorm_unfit[i] <- sum(log(dlnorm(area.subs[t], meanlog=lnmeans[[i]], sdlog=lnscales[[i]])))
+}
 
-df <- data.frame(unique(years.subs), Lnorm,Lpears, Lnorm_trunc,  Lgamma, norm)
-require(reshape2)
+df <- data.frame(unique(years.subs), ll_norm, ll_norm_trunc, ll_lnorm_fit, ll_lnorm_unfit, ll_pears, ll_gamma)
+
 df <- melt(df, id.vars = "unique.years.subs.")
 
 ggplot(data = df, aes(x = unique.years.subs., y = value, group = variable)) +
@@ -207,54 +206,3 @@ require(lattice)
 densityplot(~log(area),groups = year,
             plot.points = FALSE, ref = TRUE, 
             auto.key = list(space = "right"))
-
-
-#plot qq plots of fitted gamma functions
-require(grid)
-dat <- tapply(area.subs, years.subs, function(x) list(x))
-params <- tapply(area.subs, years.subs, function(x) fitdist(x, "gamma", method = "mme"))
-xloc <- c(1,2,3,1,2,3,1,2,3,1,2,3,1,2,3,1,2,3)
-yloc <- c(1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,6,6,6)
-
-grid.newpage()
-pushViewport(viewport(layout = grid.layout(6,3)))
-
-for (i in 1:length(dat)){
-  df <- data.frame("y" = dat[[i]])
-  x <- quantile(params[[i]], c(0.25, 0.75))
-  x <- unlist(x$quantiles)
-  y <- quantile(df$y, c(0.25, 0.75))
-  slope <- diff(y)/diff(x)
-  int <- y - slope * x
-  a <- ggplot(df, aes(sample = y)) +
-    stat_qq(distribution = qgamma, dparams = as.list(params[[i]]$estimate)) +
-    geom_abline(slope = slope, intercept = int, lty = 2, col = "red") +
-    labs(x = names(params[i]), y = "")
-  print(a, vp = viewport(layout.pos.row = yloc[i], layout.pos.col = xloc[i]))
-}
-
-#plot qq plots of fitted lnorm functions
-require(grid)
-dat <- tapply(area.subs, years.subs, function(x) list(x))
-params <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm"))
-grid.newpage()
-pushViewport(viewport(layout = grid.layout(6,3)))
-for (i in 1:length(dat)){
-  df <- data.frame("y" = dat[[i]])
-  x <- quantile(params[[i]], c(0.25, 0.75))
-  x <- unlist(x$quantiles)
-  y <- quantile(df$y, c(0.25, 0.75))
-  slope <- diff(y)/diff(x)
-  int <- y - slope * x
-  a <- ggplot(df, aes(sample = y)) +
-    stat_qq(distribution = qlnorm, dparams = as.list(params[[i]]$estimate)) +
-    geom_abline(slope = slope, intercept = int, lty = 2, col = "red") +
-    labs(x = names(params[i]), y = "")
-  print(a, vp = viewport(layout.pos.row = yloc[i], layout.pos.col = xloc[i]))
-}
-
-dev.off()
-require(grid)
-dev.off()
-
-

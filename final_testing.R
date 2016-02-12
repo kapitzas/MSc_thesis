@@ -21,3 +21,9 @@ ml <- lnmeans[t] #mean log
 sdl <- lnscales[t] # sd log
 target_distr <- rlnorm(10000,ml, sdl) # sample target distr
 target_distr_sub <- target_distr[target_distr < max(area.subs[which(yr_inds == t)]) & target_distr > min(area.subs[which(yr_inds == t)])] #limit distribution to min max (will move the mean by a little bit)
+
+
+#adjust for slope
+elevDiff <- (elev[pairs[,1]] - elev[pairs[,2]])/1000
+slopes <- elevDiff/dists_a
+s <- exp(1)^(0.0687 * slopes)
