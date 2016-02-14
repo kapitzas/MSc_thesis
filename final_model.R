@@ -1,13 +1,109 @@
 require(msm)
-require("EnvStats")
-rm(prec,year, temp)
-detach(clim.stats)
-detach(all)
-attach(clim.stats)
+require(raster)
+require(rgdal)
+
+###################################
+#1.) LOADING ALL NECESSARY DATA####
+###################################
+
+#1.a) Paths and file lists
+path_climate <- "/Users/Simon/Studium/MSC/Masterarbeit/data/climate/BOM/"
+path_shp <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/fire_data_reprojected_1970-2015"
+path_fire_rasters <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/fire rasterized 1970-2015"
+path_tsf_rasters <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/tsf rasterized 1970-2015"
+files_shp <- list.files(path_shp, pattern = "*.shp$")
+files_tsf <- list.files(path_tsf_rasters, pattern = "*.asc$")
+files_fs <- list.files(path_fire_rasters, pattern = "*.asc$")
+
+#1.b) LOAD RASTERS
+
+#i) Fire scar data
+
+fire.scar.ts <- stack()
+for (i in 1:length(files_fs)){
+  r <- raster(paste(path_fire_rasters, files_fs[i], sep ="/"))
+  crs(r) <- "+proj=longlat +ellps=GRS80 +no_defs"
+  fire.scar.ts <- stack(fire.scar.ts, r)
+}
+
+#ii) Time since fire (tsf) data
+tsf.ts <- stack()
+for (i in 1:length(files_tsf)){
+  r <- raster(paste(path_tsf_rasters, files_tsf[i], sep ="/"))
+  crs(r) <- "+proj=longlat +ellps=GRS80 +no_defs"
+  tsf.ts <- stack(tsf.ts, r)
+}
+
+#1.b) Combine fire and precipitation statistics
+
+#i) Read fire sizes from shape files and write into data frame
+
+fs.shp.repr <- list()
+for (i in 1:length(files_shp)){
+  shp <- readOGR(path_shp, substr(files_shp[i], 1, 9))
+  names(shp)[1] <- c("OBJECTID")
+  fs.shp.repr[[i]] <- shp
+}
+
+all <- data.frame("area" = fs.shp.repr[[1]]@data$Shape_Area, 
+                  "year" = fs.shp.repr[[1]]@data$CalanderYe, 
+                  "no_of_fires" = length(fs.shp.repr[[1]]@data$OBJECTID))
+
+for (i in 2:length(files_fs)){
+  allnext <- data.frame("area" = fs.shp.repr[[i]]@data$Shape_Area, 
+                        "year" = fs.shp.repr[[i]]@data$CalanderYe, 
+                        "no_of_fires" = length(fs.shp.repr[[i]]@data$OBJECTID))
+  all <- rbind(all, allnext)
+}
+
+#ii) read and process precipitation data and attach to data frame
+
+pre <- read.csv(paste0(path_climate, "IDCJAC0009_015611_1800_Data.csv"))
+prec.stats <- aggregate(pre$Rainfall.amount..millimetres., by = list(pre$Year), FUN = sum, na.rm = T)
+
+prec.stats$yycumu <- NA
+for (i in 3:nrow(prec.stats)){
+  prec.stats$yycumu[i] <-  prec.stats$x[i] + prec.stats$x[i-1] + prec.stats$x[i-2]
+}
+names(prec.stats) <- c("year", "prec", "yycumu")
+pos <- match(all$year, prec.stats$year)
+all$cumu_prec <- prec.stats$yycumu[pos]
+
+#1.c) Find relationship between precipitation and total area burned
+attach(all)
+wide_area <- 5503.63 #the total area of available data
+
+#i) Total area burned per year [%]
+total <- round((tapply(area, year, function(x) sum(x)))/wide_area * 100, digits = 3)
+
+#ii) Cumulative Precipitation per year
+cumu <- tapply(cumu_prec, year, function(x) unique(x))
+
+#iii) Model
+mod_total <- lm(log(total) ~ cumu)
+
+#1.d)
+
+#i) Subset data
+area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
+years.subs <- year[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
+cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))])
+
+#ii) Determine unfitted lnorm pars
+lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
+lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
+
+#iii) Models
+lnmeans_mod <- lm(lnmeans ~ cumu.subs)
+summary(lnmeans_mod)
+lnscales_mod <- lm(lnscales ~ cumu.subs)
+summary(lnscales_mod)
 
 ########################################################
 #1.) Preprocessing of data and simulation definitions####
 ########################################################
+detach(all)
+attach(prec.stats)
 
 #1.a) Preprocessing precipitation reference data
 
@@ -31,7 +127,6 @@ incr <- c(rep(incr_15_30, times = years_30), rep(incr_30_90, times = years_90))
 decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
 
 
-
 #1.b) Initial parameter values and definitions for entire simulation
 
 simle <- 75 #simulation length
@@ -43,9 +138,11 @@ cell_size <- cell_size[] #cell sizes in km^2
 maskrast <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/maskraster.asc")
 study_a <- maskrast[] #study area
 inds <- 1:length(maskrast[]) #cell indices
-yr_inds <- tapply(area.subs, years.subs)
 elev <- raster(paste0("/Users/Simon/Studium/MSC/Masterarbeit/data//Elevation/elevation9secNH.asc"))
 elev <- elev[]
+ncol <- ncol(maskrast)
+nrow <- nrow(maskrast)
+
 #########################
 #2.) SIMULATION LEVEL#####
 #########################
@@ -64,9 +161,8 @@ for (j in 1:simno){
   sim_prec_high <- c(tail(prec, 2), sim_prec_high)
   sim_prec_low <- c(tail(prec, 2), sim_prec_low)
   
-  sim_cumu_high <- numeric(); sim_cumu_low <- numeric()
-  
   #Calculate simulated cumulative precipitation
+  sim_cumu_high <- numeric(); sim_cumu_low <- numeric()
   for (i in 1:(length(sim_prec_high)-2)){
     sim_cumu_high[i] <-  sim_prec_high[i+2] + sim_prec_high[i+1] + sim_prec_high[i]
     sim_cumu_low[i] <-  sim_prec_low[i+2] + sim_prec_low[i+1] + sim_prec_low[i]
@@ -81,20 +177,20 @@ for (j in 1:simno){
   # 2.c) Initial parameter settings and definitions for current simulation run
   
   #store fire maps and summary stats annually
-  tsf.df <- data.frame("tsf.ini" = tsf.ts[[28]][]) # store annual tsf
-  fs.df <- data.frame(fire.scar.ts[]) # store annual fire scar
-  fires <- data.frame()   #fire sizes
+  tsf.df <- data.frame("tsf.ini" = tsf.ts[[28]][]) #store annual tsf
+  fs.df <- data.frame(fire.scar.ts[]) #store annual fire scar
+  fires <- data.frame() #fire sizes
   
   #initial tsf map
   tsf_cur <- tsf.df[,1]
   
-  # counter for fires that couldnt fully burn
+  # counter for fires that couldn't fully burn
   not_complete <- 0
   
   #is a fire restarted? Default F (important for rescheduling of a fire that couldnt reach its size)
   restart = F
   
-  #start year
+  #Start year
   yr <- 2016
   
   ######################
@@ -103,7 +199,7 @@ for (j in 1:simno){
   
   for (i in 1:simle){
     
-    #3.a) Sample if fire will occur during this time step
+    #3.a) Sample if fire will occur during this time step (based on historic fire frequency)
     occurance <- runif(1, 0, 1) < length(unique(all$year))/(2015-1970)
     
     if(occurance == F){
@@ -114,16 +210,16 @@ for (j in 1:simno){
     
     # i) General time step definitions
     precip <- sim_cumu_high[i] #draw precipitation value (for storage later on)
-    fire_scar <- values(maskrast-1) #fire scar
+    fire_scar <- maskrast[]-1 #fire scar
     total_fire <- 0 # initial realised total burned area
     
     #ii) If fires occur in this year
     if(occurance == T){
       
       #Calculation of fire probability map
-      firenumber <- rowSums(fs.df[]) #determine number of fires on each cell
+      no_fires <- rowSums(fs.df[]) #determine number of fires on each cell
       no_years <- as.numeric(tail(substr(names(fs.df), 5, 8),1)) - as.numeric(head(substr(names(fs.df), 5, 8),1))
-      mfi <- no_years/firenumber #cell level fire interval, produces inf, but 1/inf is 0
+      mfi <- no_years/no_fires #cell level fire interval, produces inf, but 1/inf is 0
       p <- tsf_cur/mfi #probabilities
       p[p > 1] <- 1
       
@@ -139,9 +235,10 @@ for (j in 1:simno){
       target_distr <- rlnorm(10000,loc, scale)
       target_distr_sub <- target_distr[target_distr < max(area.subs) & target_distr > min(area.subs)] #limit distribution to min max (will move the mean by a little bit)
     }
-    #####################
-    #4.) FIRE LEVEL######
-    #####################
+    
+    ####################
+    #4.) FIRE LEVEL#####
+    ####################
     while(total_fire < target_year){
       #4.a) Storage of probability map, fire scar map and total achieved fire size before a new fire is started
       p_old <- p
@@ -192,7 +289,6 @@ for (j in 1:simno){
         pairs <- pairs[!is.na(study_a[pairs[,2]]),]
         sc <- pairs[,2]
         
-        
         #5.b) Burn cells
         
         #adjust for distance (diagonal cells are further away, thus less likely to burn)
@@ -205,7 +301,7 @@ for (j in 1:simno){
         slopes <- clamp(slopes, -1, 1)
         s <- 1 + slopes
         
-        #Based on mfi/tsf ratio,e.g. cells for which tsf approaches mfi are most likely to burn
+        #Based on mfi/tsf ratio, e.g. cells for which tsf approaches mfi are most likely to burn
         burn <- ifelse(runif(length(sc),0,1) < (p[sc] * d * s), 1, 0)
         ac <- sc[which(burn == 1)] # burned cells become new active cells
         
@@ -219,14 +315,13 @@ for (j in 1:simno){
           ac <- sample(sc, size = 1, p = p[sc])
         }
         
-        #Fire did not spread to spreading cells, because none of them can burn: restart from fire front (rc) when rc > 1
-        if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) > 0 && length(rc) > 1){
-          ac <- sample(rc, size = 1, p = p[rc])
-        }
-        
-        #Fire did not spread to spreading cells, because none of them can burn: restart from fire front when rc = 1
-        if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) > 0 && length(rc) == 1){
-          ac <- rc
+        #Fire did not spread to spreading cells, because none of them can burn: restart from fire front (rc) when length(rc) > 1
+        if(length(ac) == 0 && length(sc) > 1 && sum(p[sc]) == 0 && sum(p[rc]) > 0){
+          if(length(rc) > 1){
+            ac <- sample(rc, size = 1, p = p[rc])
+          }else if(length(rc) == 1){
+            ac <- rc
+          }
         }
         
         #fire did not spread to spreading cells, because none of them can burn and fire front can't burn: fire stops and new fire is started
@@ -286,10 +381,14 @@ for (j in 1:simno){
   #6.c) Simulation run level data
   sim_data[[j]] <- list("fires" = fires, "tsf" = tsf.df, "fs" = fs.df)
 }
+
 head(fires, 100)
 
 test <- maskrast
-i <- 25
+i <- 1
+values(test) <- tsf.df[,i]
+plot(test)
+i = i + 1
 
 sum(na.omit(cell_size))
 
@@ -302,13 +401,13 @@ sum(cell_size[which(fire_scar == 1)])
 
 head(fires)
 i = 1
-values(test) <- tsf.df[,i]
+)
 plot(test)
-i = i + 1
+
 sum(cell_size[which(p == 0)])
 total_fire
 length(fire_scar)
-i <- i + 1
+i <- i + `
 fires[which(fires$fire_achieved == max(fires$fire_achieved)),]
 sum(fires$fire_achieved[which(fires$yr == 2031)])
 unique(fires$yr)
