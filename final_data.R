@@ -1,45 +1,44 @@
-
 require(reshape2)
 require(raster)
 require(grid)
 require(rgdal)
-library(ggplot2)
-library(fitdistrplus)
-library(MASS)
-library(PearsonDS)
+require(ggplot2)
+require(fitdistrplus)
+require(MASS)
+require(PearsonDS)
 
 #####Climate Data#####
 climate.path <- "/Users/Simon/Studium/MSC/Masterarbeit/data/climate/BOM/"
 
-#prec newhaven, temp Yuendumu
+#prec newhaven, tem Yuendumu
 prec <- read.csv(paste0(climate.path, "IDCJAC0009_015611_1800_Data.csv"))
-temp <- read.csv(paste0(climate.path, "IDCJAC0010_015528_1800_Data.csv"))
+tem <- read.csv(paste0(climate.path, "IDCJAC0010_015528_1800_Data.csv"))
 enso <- read.csv(paste0(climate.path, "southern_oscillation_index_1960_2015.csv"))
 
 #aggregate prec data by year (annual rainfall sum)
 prec.stats <- aggregate(prec$Rainfall.amount..millimetres., by = list(prec$Year), FUN = sum, na.rm = T)
-temp.stats <- aggregate(temp$Maximum.temperature..Degree.C., by = list(temp$Year), FUN =  function(x){length(na.omit(x[x > 41]))})
+tem.stats <- aggregate(tem$Maximum.temperature..Degree.C., by = list(tem$Year), FUN =  function(x){length(na.omit(x[x > 41]))})
 enso.stats <- data.frame("year" = enso$Year, "mean_enso_index" = rowMeans(enso[,2:13]))
 clim.stats <- merge(prec.stats, enso.stats, by.x = "Group.1", by.y = "year")
-clim.stats <- merge(clim.stats, temp.stats, by.x = "Group.1", by.y = "Group.1")
+clim.stats <- merge(clim.stats, tem.stats, by.x = "Group.1", by.y = "Group.1")
 
 #Calculate cumulative prec
 clim.stats$yycumu <- NA
 for (i in 3:51){
   clim.stats$yycumu[i] <-  clim.stats$x.x[i] + clim.stats$x.x[i-1] + clim.stats$x.x[i-2]
 }
-names(clim.stats) <- c("year", "prec", "enso_ind", "temp", "yycumu")
+names(clim.stats) <- c("year", "prec", "enso_ind", "tem", "yycumu")
 
 #####Fire Data#####
 path.shp <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/fire_data_reprojected_1970-2015"
-files <- list.files(path.shp, pattern = "*.shp$")
+files.shp <- list.files(path.shp, pattern = "*.shp$")
 
 # read fire data
 fs.shp.repr <- list()
 for (i in 1:length(files)){
-  temp <- readOGR(path.shp, substr(files[i], 1, 9))
-  names(temp)[1] <- c("OBJECTID")
-  fs.shp.repr[[i]] <- temp
+  tem <- readOGR(path.shp, substr(files[i], 1, 9))
+  names(tem)[1] <- c("OBJECTID")
+  fs.shp.repr[[i]] <- tem
   }
 
 #Get fire sizes, calender year and number of fires from fire scar shapefiles
@@ -50,10 +49,10 @@ for (i in 2:length(files)){
   print(i)
 }
 
-#attach prec and temp data
+#attach prec and tem data
 pos <- match(all$year, clim.stats$year)
 all$cumu_prec <- clim.stats$yycumu[pos]
-all$temp <- clim.stats$temp[pos]
+all$tem <- clim.stats$tem[pos]
 
 #LOAD TSF DATA
 path.tsf <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/tsf rasterized 1970-2015"
@@ -69,7 +68,7 @@ for (i in 1:length(files)){
 ######################################################
 ###PREC VS TOTAL AREA BURNED
 ######################################################
-rm(year, temp)
+rm(year, tem)
 detach(clim.stats)
 detach(all)
 attach(all)
@@ -88,7 +87,7 @@ summary(mod_total)
 ######################################################
 detach(all)
 detach(clim.stats)
-rm(year, temp)
+rm(year, tem)
 attach(all)
 
 #Subsets of years iwth sufficient data
@@ -203,6 +202,22 @@ plot(cumu, meanlogs)
 plot(cumu, sdlogs)
 
 require(lattice)
+attach(all)
 densityplot(~log(area),groups = year,
             plot.points = FALSE, ref = TRUE, 
-            auto.key = list(space = "right"))
+            auto.key = list(space = "right"), ylim = c(0,0.7), xlim = c(-10, 10))
+
+densityplot(~log(fires$fire_achieved),groups = fires$yr,
+            plot.points = FALSE, ref = TRUE, 
+            auto.key = list(space = "right"), ylim = c(0,0.7), xlim = c(-10, 10))
+
+
+
+t.test(log(fires$fire_achieved), log(all$area))
+length(fires$fire_achieved)/75
+length(all$area)/54
+
+boxplot(log(area))
+mean(all$area)
+mean(fires$fire_achieved)
+

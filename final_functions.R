@@ -1,12 +1,4 @@
-distance <- function(from, to, layer){
-  dist <- numeric()
-  for (i in 1:length(from)){
-    distxy <- xyFromCell(layer, to[i]) - xyFromCell(layer, from[i])
-    dist[i] <- sqrt((distxy[1])^2 + (distxy[2])^2)  
-  }
-  return(dist)
-}
-
+#FUNCTION TO CALCULATE PLANAR, UNPROJECTED DISTANCE (PLANAR UNITS) BETWEEN CELLS
 dist <- function(from, to, ncol, nrow){
   row_from <- ceiling(from/ncol)
   col_from <- from - ((row_from - 1) * ncol)
@@ -18,31 +10,34 @@ dist <- function(from, to, ncol, nrow){
   return(distance)
 }
 
-#funciton to clamp values
+#FUNCTION TO CLAMP VALUES
 clamp <- function(x, min, max) {
   x[which(x<min)] <- min
   x[which(x>max)] <- max
   return(x)
 }
 
-#loglik of Pearson fits
+#LOGLIK OF PEARSON FITS
 loglikpears <- function(x){
   temp <- pearsonMSC(x)
   max(temp$logLik)
 }
 
-#function definition
+#PEARSON FUNCTION WITH HIGHEST AIC
 pearsFUN <- function(x){
   temp <- pearsonMSC(x)
   temp$Best$AIC
 }
 
+#FUNCTION TO ESTIMATE EMPIRIC LOGSD
 lnscale <- function(x){
   variance <- (sd(x))^2
   mean <- mean(x)
   scale <- sqrt(log(1+ variance/mean^2))
   return(scale)
 }
+
+#FUNCTION TO ESTIMATE EMPIRIC LOGMEAN
 lnmean <- function(x){
   variance <- (sd(x))^2
   mean <- mean(x)

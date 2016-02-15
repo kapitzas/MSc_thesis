@@ -18,7 +18,7 @@ for (i in 1:length(files)){
   r.f[is.na(r.f[])] <- 0
   r.f[is.na(maskrast[])] <- NA
   r.f@data@names <- paste0("fs_", n[i])
-  writeRaster(r.f, paste0(path.fire.rasters, "/fs_", n[i]), format = "ascii", overwrite = T)
+#  writeRaster(r.f, paste0(path.fire.rasters, "/fs_", n[i]), format = "ascii", overwrite = T)
   fire.scar.ts <- stack(fire.scar.ts, r.f)
 }
 #calc tsf for each year, starting 1970, output

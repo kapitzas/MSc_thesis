@@ -92,6 +92,10 @@ cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))
 #ii) Determine unfitted lnorm pars
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
+test <- rlnormTrunc(1000, lnmeans[1], lnscales[1], min = min(area.subs[which(years.subs == 1976)]), max = max(area.subs[which(years.subs == 1976)]))
+
+mean(test)
+mean(area.subs[which(years.subs == 1976)])
 
 #iii) Models
 lnmeans_mod <- lm(lnmeans ~ cumu.subs)
