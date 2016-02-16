@@ -38,22 +38,18 @@ for (i in 1:length(files_tsf)){
 
 #i) Read fire sizes from shape files and write into data frame
 
-fs.shp.repr <- list()
+all <- data.frame()
 for (i in 1:length(files_shp)){
+  
+  #read shapefiles
   shp <- readOGR(path_shp, substr(files_shp[i], 1, 9))
   names(shp)[1] <- c("OBJECTID")
-  fs.shp.repr[[i]] <- shp
-}
-
-all <- data.frame("area" = fs.shp.repr[[1]]@data$Shape_Area, 
-                  "year" = fs.shp.repr[[1]]@data$CalanderYe, 
-                  "no_of_fires" = length(fs.shp.repr[[1]]@data$OBJECTID))
-
-for (i in 2:length(files_fs)){
-  allnext <- data.frame("area" = fs.shp.repr[[i]]@data$Shape_Area, 
-                        "year" = fs.shp.repr[[i]]@data$CalanderYe, 
-                        "no_of_fires" = length(fs.shp.repr[[i]]@data$OBJECTID))
-  all <- rbind(all, allnext)
+  
+  #extract data
+  f <- data.frame("area" = shp@data$Shape_Area, 
+                  "year" = shp@data$CalanderYe, 
+                  "no_of_fires" = length(shp@data$OBJECTID))
+  all <- rbind(all, f)
 }
 
 #ii) read and process precipitation data and attach to data frame
@@ -63,7 +59,7 @@ prec.stats <- aggregate(pre$Rainfall.amount..millimetres., by = list(pre$Year), 
 
 prec.stats$yycumu <- NA
 for (i in 3:nrow(prec.stats)){
-  prec.stats$yycumu[i] <-  prec.stats$x[i] + prec.stats$x[i-1] + prec.stats$x[i-2]
+  prec.stats$yycumu[i] <-  prec.stats$x[i] + prec.stats$x[i-1] + prec.stats$x[i-2] 
 }
 names(prec.stats) <- c("year", "prec", "yycumu")
 pos <- match(all$year, prec.stats$year)
@@ -92,16 +88,11 @@ cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))
 #ii) Determine unfitted lnorm pars
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
-test <- rlnormTrunc(1000, lnmeans[1], lnscales[1], min = min(area.subs[which(years.subs == 1976)]), max = max(area.subs[which(years.subs == 1976)]))
 
-mean(test)
-mean(area.subs[which(years.subs == 1976)])
 
 #iii) Models
 lnmeans_mod <- lm(lnmeans ~ cumu.subs)
-summary(lnmeans_mod)
 lnscales_mod <- lm(lnscales ~ cumu.subs)
-summary(lnscales_mod)
 
 ########################################################
 #1.) Preprocessing of data and simulation definitions####
@@ -118,8 +109,9 @@ high_prec_30 <- mean_prec *108/100
 low_prec_30 <- mean_prec * 89/100
 high_prec_90 <- mean_prec *119/100
 low_prec_90 <- mean_prec * 69/100
+neut_prec_30 <- mean_prec
 
-#calculation of annual increments/decrements
+#calculation of annual increments/decrements for high and low scenario
 years_30 <- 2030 - 2015
 years_90 <- 2090 -2030
 incr_15_30 <- (high_prec_30 - mean_prec) / years_30
@@ -129,10 +121,10 @@ decr_30_90 <- (low_prec_90 - low_prec_30) / years_90
 
 incr <- c(rep(incr_15_30, times = years_30), rep(incr_30_90, times = years_90))
 decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
-
+neut <- rep(0, 75)
 
 #1.b) Initial parameter values and definitions for entire simulation
-
+scen <- "high"
 simle <- 75 #simulation length
 simno <- 1 #number of simulations
 sim_data <- list() #data frame for all sim data
@@ -155,28 +147,32 @@ for (j in 1:simno){
   #2.a) Simulation of precipitation regime for time span
   
   #Estimation of simulated precipitation means 2015 - 2090 (first value for 2016), with random terms
-  sim_prec_high <- numeric(); sim_prec_low <- numeric()
-  for (i in 1:length(incr)){
-    sim_prec_low[i] <- exp(log(mean_prec + sum(decr[1:i])) + rnorm(1, 0, sd(log(reference_prec))))
-    sim_prec_high[i] <- exp(log(mean_prec + sum(incr[1:i])) + rnorm(1, 0, sd(log(reference_prec))))
+  if (scen == "high"){
+    change <- incr
+  }else if (scen == "low"){
+    change <- decr
+  }else if (scen == "neut"){
+    change <- neut
+  }
+  
+  sim_prec <- numeric()
+  for (i in 1:length(change)){
+    sim_prec[i] <- exp(log(mean_prec + sum(change[1:i])) + rnorm(1, 0, sd(log(reference_prec))))
   }
   
   #Attach last two measured precipitation values (2014 and 2015) for calculation of first time step
-  sim_prec_high <- c(tail(prec, 2), sim_prec_high)
-  sim_prec_low <- c(tail(prec, 2), sim_prec_low)
+  sim_prec <- c(tail(prec, 2), sim_prec)
   
   #Calculate simulated cumulative precipitation
-  sim_cumu_high <- numeric(); sim_cumu_low <- numeric()
-  for (i in 1:(length(sim_prec_high)-2)){
-    sim_cumu_high[i] <-  sim_prec_high[i+2] + sim_prec_high[i+1] + sim_prec_high[i]
-    sim_cumu_low[i] <-  sim_prec_low[i+2] + sim_prec_low[i+1] + sim_prec_low[i]
+  sim_cumu <- numeric()
+  for (i in 1:(length(sim_prec)-2)){
+    sim_cumu[i] <-  sim_prec[i+2] + sim_prec[i+1] + sim_prec[i]
   }
   
   #2.b) Simulation of total area burned based on estimated precipitation regime
   
   #Simulate total area burned
-  sim_high_total_burned <- exp(predict(mod_total, newdata = (data.frame("cumu" = sim_cumu_high))) + rnorm(length(sim_cumu_high), 0, sd(residuals(mod_total))))
-  sim_low_total_burned <- exp(predict(mod_total, newdata = (data.frame("cumu" = sim_cumu_low))) + rnorm(length(sim_cumu_low), 0, sd(residuals(mod_total))))
+  sim_total_burned <- exp(predict(mod_total, newdata = (data.frame("cumu" = sim_cumu))) + rnorm(length(sim_cumu), 0, sd(residuals(mod_total))))
   
   # 2.c) Initial parameter settings and definitions for current simulation run
   
@@ -213,7 +209,7 @@ for (j in 1:simno){
     #3.b) Set initial time step parameters
     
     # i) General time step definitions
-    precip <- sim_cumu_high[i] #draw precipitation value (for storage later on)
+    precip <- sim_cumu[i] #draw precipitation value (for storage later on)
     fire_scar <- maskrast[]-1 #fire scar
     total_fire <- 0 # initial realised total burned area
     
@@ -228,7 +224,7 @@ for (j in 1:simno){
       p[p > 1] <- 1
       
       #Sample annual area burned
-      target_year <- sim_high_total_burned[i]/100 * sum(na.omit(cell_size[]))
+      target_year <- sim_total_burned[i]/100 * sum(na.omit(cell_size[]))
       if (target_year > sum(na.omit(cell_size[])) * 60 /100){
         target_year <- sum(na.omit(cell_size[])) * 60 /100 # limit to empiric 60% of study area
       }
@@ -257,7 +253,7 @@ for (j in 1:simno){
       if (restart == T){
         restart <- F
       }
-
+      
       #4.b) Sample ignition cell
       ini_pburn <- 0 #sum of fire probabilities in adjacent cells, ignition cell only selected when it is > 0 (at least one burnable cell)
       while(ini_pburn == 0){
@@ -341,7 +337,7 @@ for (j in 1:simno){
         
         #5.d) Decrement currently active cells to stay within target fire size
         
-        #number of cells to burn till target fire size is reached
+        #area to burn till target fire size is reached
         diff <- ifelse(target_year - total_fire < target_fire - fire_achieved, target_year - total_fire,target_fire - fire_achieved) # how much area is left to burn
         no <- ceiling(diff/mean(cell_size[ac])) # approximitely how many cells will that make
         
@@ -357,13 +353,15 @@ for (j in 1:simno){
         total_fire <- sum(cell_size[which(fire_scar == 1)])
         cat(yr, round(total_fire/target_year * 100, 2),"%","target:", target_year, not_complete, "\r")
       }
-        
+      
       ##########################
       #6.)STORAGE OF SIM DATA###
       ##########################
       
       #6.a) fire level data
-      fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire, target_year))
+      if(fire_achieved != 0){
+        fires <- rbind(fires, data.frame(yr, fire_achieved, target_fire, precip, total_fire, target_year))
+      }
     }
     
     #6.b) Time-step level data
@@ -386,32 +384,8 @@ for (j in 1:simno){
   sim_data[[j]] <- list("fires" = fires, "tsf" = tsf.df, "fs" = fs.df)
 }
 
-head(fires, 100)
-
 test <- maskrast
-i <- 1
+i = 1
 values(test) <- tsf.df[,i]
 plot(test)
-i = i + 1
-
-sum(na.omit(cell_size))
-
-plot(fs.df$fs_s2025)
-
-sum(cell_size[which(fs.df$fs_s2016 == 1)])
-
-fires$fire_achieved[which(fires$yr == 2016)]
-sum(cell_size[which(fire_scar == 1)])
-
-head(fires)
-i = 1
-)
-plot(test)
-
-sum(cell_size[which(p == 0)])
-total_fire
-length(fire_scar)
-i <- i + `
-fires[which(fires$fire_achieved == max(fires$fire_achieved)),]
-sum(fires$fire_achieved[which(fires$yr == 2031)])
-unique(fires$yr)
+i <- i + 1
