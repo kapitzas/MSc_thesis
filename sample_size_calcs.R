@@ -11,7 +11,7 @@
 #1.a) Storage variables
 nls_a <- list() #For non linear models
 nls_b <- list()
-ta_burned_real <- vector() #realised total area burned
+ta_unburned_real <- vector() #realised total area burned
 deviation <- vector() #deviation 
 
 #1.b)
@@ -128,7 +128,7 @@ for (k in 1:length(total_clusters)){
   nls_a[[k]] <- nls(rmse_a ~ i*trans_length^-z, start= list(i=-3,z=-2))
   nls_b[[k]] <- nls(rmse_b ~ i*trans_length^-z, start= list(i=-3,z=-2))
   print(paste(k, "%"))
-  ta_burned_real[k] <- real
+  ta_unburned_real[k] <- real
   deviation[k] <- 10/100 * real
 }
 
@@ -171,13 +171,13 @@ for (i in 1:length(nls_a)){
 }
 
 
-image(1, ta_burned, t(seq_along(ta_burned)), col=cl, axes=FALSE)
+image(1, ta_unburned, t(seq_along(ta_unburned)), col=cl, axes=FALSE)
 axis(4)
 dev.off()
-plot(ta_burned_real, length_a, ylim = c(0, max(length_a) + 50), type = "l")
-lines(ta_burned_real, length_b, ylim = c(0, max(length_b) + 50), col = "red")
+plot(ta_unburned_real, length_a, ylim = c(0, max(length_a) + 50), type = "l")
+lines(ta_unburned_real, length_b, ylim = c(0, max(length_b) + 50), col = "red")
 
 quantile(length_a, c(.075, .5, .95))
 quantile(length_b, c(.075, .5, .95))
-
+hist(sqrt(length_a))
 plot(r)

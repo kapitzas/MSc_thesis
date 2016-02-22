@@ -69,7 +69,7 @@ for (i in 1:length(files)){
 ###PREC VS TOTAL AREA BURNED
 ######################################################
 rm(year, tem)
-detach(clim.stats)
+detach(prec.stats)
 detach(all)
 attach(all)
 

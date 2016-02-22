@@ -2,11 +2,12 @@ require(msm)
 require(raster)
 require(rgdal)
 
-###################################
-#1.) LOADING ALL NECESSARY DATA####
-###################################
+#####################
+#1.) DEFINITIONS AND DATA####
+#####################
 
 #1.a) Paths and file lists
+
 path_climate <- "/Users/Simon/Studium/MSC/Masterarbeit/data/climate/BOM/"
 path_shp <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/fire_data_reprojected_1970-2015"
 path_fire_rasters <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/fire rasterized 1970-2015"
@@ -15,7 +16,31 @@ files_shp <- list.files(path_shp, pattern = "*.shp$")
 files_tsf <- list.files(path_tsf_rasters, pattern = "*.asc$")
 files_fs <- list.files(path_fire_rasters, pattern = "*.asc$")
 
-#1.b) LOAD RASTERS
+#1.b) Simulation definitions
+
+#i) Simulation parameters
+scen <- "high" #scenario
+simle <- 75 #simulation length
+simno <- 1 #number of simulations
+ini_year <- 2016
+
+#ii) Storage
+sim_data <- list() #data frame for all sim data
+output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out"
+
+#iii) Initial rasters and process variables
+cell_size <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/cell_size.asc")
+elev <- raster(paste0("/Users/Simon/Studium/MSC/Masterarbeit/data//Elevation/elevation9secNH.asc")) #elev raster
+cell_size <- cell_size[] #cell sizes in km^2
+elev <- elev[] #elev in m
+maskrast <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/maskraster.asc")
+study_a <- maskrast[] #study area
+inds <- 1:length(maskrast[]) #cell indices
+ncol <- ncol(maskrast) #raster dim
+nrow <- nrow(maskrast) #raster dim
+p <- maskrast[]-1 #initial p map
+
+#1.c) Load Rasters
 
 #i) Fire scar data
 
@@ -27,6 +52,7 @@ for (i in 1:length(files_fs)){
 }
 
 #ii) Time since fire (tsf) data
+
 tsf.ts <- stack()
 for (i in 1:length(files_tsf)){
   r <- raster(paste(path_tsf_rasters, files_tsf[i], sep ="/"))
@@ -34,7 +60,8 @@ for (i in 1:length(files_tsf)){
   tsf.ts <- stack(tsf.ts, r)
 }
 
-#1.b) Combine fire and precipitation statistics
+
+#1.c) Combine fire and precipitation statistics
 
 #i) Read fire sizes from shape files and write into data frame
 
@@ -65,7 +92,8 @@ names(prec.stats) <- c("year", "prec", "yycumu")
 pos <- match(all$year, prec.stats$year)
 all$cumu_prec <- prec.stats$yycumu[pos]
 
-#1.c) Find relationship between precipitation and total area burned
+#1.d) Relationship between precipitation and total area burned
+
 attach(all)
 wide_area <- 5503.63 #the total area of available data
 
@@ -78,7 +106,7 @@ cumu <- tapply(cumu_prec, year, function(x) unique(x))
 #iii) Model
 mod_total <- lm(log(total) ~ cumu)
 
-#1.d)
+#1.e) Relationship between precipitation and fire distribution parameters
 
 #i) Subset data
 area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
@@ -89,20 +117,74 @@ cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
 
-
 #iii) Models
 lnmeans_mod <- lm(lnmeans ~ cumu.subs)
 lnscales_mod <- lm(lnscales ~ cumu.subs)
 
-########################################################
-#1.) Preprocessing of data and simulation definitions####
-########################################################
-detach(all)
+#1.f)  Determination of fire probabilities in major pyric classes
+
+#i) identification of pyric class
+haz_time <-as.numeric(dimnames(total)[[1]]) ##for estimation of hazard function
+haz_fs <- data.frame(fire.scar.ts[])
+pyric_class <- rowSums(haz_fs) #determine number of fires on each cell
+pyric_class[which(pyric_class%in%c(6,7))] <- 5
+total_class <- tapply(pyric_class, pyric_class, "length")[-1]
+
+#ii) Estimation of fire probability vs tsf mean curves by pyric class
+Ftl <- data.frame(matrix(0, nrow = 20, ncol = 6))
+
+for (k in 1:10){
+  Ft <- data.frame(matrix(nrow = length(haz_fs[1,k:(k + 19)]), ncol = length(total_class)))
+  
+  Ft$yr <- rev(2006+k - haz_time[k:(k + 19)])
+  for (j in 1: length(total_class)){
+    
+    sub <- haz_fs[which(pyric_class == j),k:(k + 19)] #starting yr 6 because big fire in yr 5
+    Ft[1,j] <- length(sub[,1][which(sub[,1] == 1)])
+    
+    for (i in 2:(length(sub)-1)){
+      
+      ch <- sub[,i+1] - rowSums(sub[,1:i])
+      Ft[i,j] <- length(ch[which(ch == 1)])
+    }
+    Ft[,j] <- cumsum(Ft[,j]/length(sub[,1])) #build cumulative sum of p
+  }
+  Ftl <- Ftl + Ft
+}
+
+Ftl <- Ftl/10
+# for (j in 1: length(total_class)){
+#   for (i in 1:(length(sub)-1)){
+#     Ftl[i,j] <- (Ftl[i+1,j] - Ftl[i,j]) / (Ftl[i+1,6] - Ftl[i,6])
+#   }
+# }
+
+#iii) Probability Models for each pyric class
+
+mod_probs <- list()
+for (i in 1: length(total_class)){
+  mod_probs[[i]] <- NA
+  while(length(mod_probs[[i]]) == 1){
+    py <- data.frame(cumu = Ftl[,i], yr = Ftl[,6])
+    mod_probs[[i]] <- tryCatch(nls(cumu ~ c * exp(-(yr/b)^a), data = py, start = list(a = sample(-5:5, 1), b = sample(0:30,1), c = sample(0:1,1))), error = function(e) NA)
+  }
+}
+
+#1.g) Relationship between precipitation and fire occurance
+yrs <- 1970:2015
+oc <- 1:length(yrs)
+oc[match(unique(year), yrs)] <- 1
+oc[-match(unique(year), yrs)] <- 0
+pr <- prec.stats$yycumu[which(prec.stats$year%in%yrs)]
+mod_occ <- glm(oc ~ pr, family = "binomial")
+
+##########################################
+#2.) PREPROCESSING PRECIPITATION DATA ####
+##########################################
 attach(prec.stats)
+#2.a) Preprocessing precipitation reference data
 
-#1.a) Preprocessing precipitation reference data
-
-#87 - 2005 reference
+#i) 87 - 2005 reference
 reference_prec <- prec[year >= 1987 & year <= 2005]
 mean_prec <- mean(reference_prec)
 high_prec_30 <- mean_prec *108/100
@@ -111,7 +193,7 @@ high_prec_90 <- mean_prec *119/100
 low_prec_90 <- mean_prec * 69/100
 neut_prec_30 <- mean_prec
 
-#calculation of annual increments/decrements for high and low scenario
+#ii) calculation of annual increments/decrements for high and low scenario
 years_30 <- 2030 - 2015
 years_90 <- 2090 -2030
 incr_15_30 <- (high_prec_30 - mean_prec) / years_30
@@ -122,22 +204,6 @@ decr_30_90 <- (low_prec_90 - low_prec_30) / years_90
 incr <- c(rep(incr_15_30, times = years_30), rep(incr_30_90, times = years_90))
 decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
 neut <- rep(0, 75)
-
-#1.b) Initial parameter values and definitions for entire simulation
-scen <- "high"
-simle <- 75 #simulation length
-simno <- 1 #number of simulations
-sim_data <- list() #data frame for all sim data
-output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out"
-cell_size <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/cell_size.asc")
-cell_size <- cell_size[] #cell sizes in km^2
-maskrast <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/maskraster.asc")
-study_a <- maskrast[] #study area
-inds <- 1:length(maskrast[]) #cell indices
-elev <- raster(paste0("/Users/Simon/Studium/MSC/Masterarbeit/data//Elevation/elevation9secNH.asc"))
-elev <- elev[]
-ncol <- ncol(maskrast)
-nrow <- nrow(maskrast)
 
 #########################
 #2.) SIMULATION LEVEL#####
@@ -191,7 +257,7 @@ for (j in 1:simno){
   restart = F
   
   #Start year
-  yr <- 2016
+  yr <- ini_year
   
   ######################
   #3.) TIME STEP LEVEL##
@@ -200,7 +266,12 @@ for (j in 1:simno){
   for (i in 1:simle){
     
     #3.a) Sample if fire will occur during this time step (based on historic fire frequency)
-    occurance <- runif(1, 0, 1) < length(unique(all$year))/(2015-1970)
+    for (l in 1: length(total_class)){
+      p[which(pyric_class == l)] <- predict(mod_probs[[l]],newdata = data.frame("yr" = tsf_cur[which(pyric_class == l)]))
+    }
+    p[which(p > 1)] <- 1
+    
+    occurance <- runif(1, 0, 1) < predict(mod_occ, newdata = data.frame("pr" = precip), type = "response")
     
     if(occurance == F){
       target_year <- 0
@@ -215,13 +286,6 @@ for (j in 1:simno){
     
     #ii) If fires occur in this year
     if(occurance == T){
-      
-      #Calculation of fire probability map
-      no_fires <- rowSums(fs.df[]) #determine number of fires on each cell
-      no_years <- as.numeric(tail(substr(names(fs.df), 5, 8),1)) - as.numeric(head(substr(names(fs.df), 5, 8),1))
-      mfi <- no_years/no_fires #cell level fire interval, produces inf, but 1/inf is 0
-      p <- tsf_cur/mfi #probabilities
-      p[p > 1] <- 1
       
       #Sample annual area burned
       target_year <- sim_total_burned[i]/100 * sum(na.omit(cell_size[]))
@@ -377,6 +441,7 @@ for (j in 1:simno){
     names(tsf.df)[which(names(tsf.df) == "tsf_cur")] <- paste0("tsf_s", yr)
     
     #increment year
+    haz_time <- c(haz_time, yr)
     yr <- yr + 1
   }
   
@@ -384,8 +449,12 @@ for (j in 1:simno){
   sim_data[[j]] <- list("fires" = fires, "tsf" = tsf.df, "fs" = fs.df)
 }
 
+
 test <- maskrast
 i = 1
 values(test) <- tsf.df[,i]
 plot(test)
 i <- i + 1
+
+dev.off()
+length(unique(fires$yr))/simle
