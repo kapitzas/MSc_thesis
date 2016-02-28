@@ -29,6 +29,14 @@ pearsFUN <- function(x){
   temp$Best$AIC
 }
 
+#95% CI
+ci <- function(x){
+  mean <- mean(x)
+  upper <- mean + 1.96 * sd(x)/sqrt(length(x))
+  lower <- mean - 1.96 * sd(x)/sqrt(length(x))
+  return(c(lower, mean, upper))
+}
+
 #FUNCTION TO ESTIMATE EMPIRIC LOGSD
 lnscale <- function(x){
   variance <- (sd(x))^2

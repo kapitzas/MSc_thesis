@@ -19,7 +19,8 @@ sum(na.omit(cell_size[]))
 gArea(mask)/1000000
 
 #determine approximate extended area
-plot(extent(fs.shp[[26]]))
+plot(extent(shp))
+plot(extent(mask))
 plot(fs.shp[[26]], add = T)
 topright <- drawPoly()
 crs(topright) <- crs(fs.shp[[26]])
