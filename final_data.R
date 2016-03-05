@@ -91,11 +91,13 @@ rm(year, tem)
 attach(all)
 
 #Subsets of years iwth sufficient data
-fn <- tapply(area, year, function (x) length(x))
-area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
-years.subs <- year[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
-cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))])
-total.subs <- tapply(area.subs, years.subs, function(x) sum(x))
+s <- tapply(area, year, FUN = length)
+subyrs <- c(1976, 1982,1983, 1984, 2000:2005, 2008:2012)
+area.subs <- area[which(year%in%subyrs)]
+years.subs <- year[which(year%in%subyrs)]
+precan.subs <- unique(prec[which(year%in%subyrs)])
+cumu2.subs <- unique(cumuyy[which(year%in%subyrs)])
+cumu3.subs <- unique(cumuyyy[which(year%in%subyrs)])
 
 #PEARSON
 #Extract person moments
@@ -110,11 +112,10 @@ for (i in 1:length(MM)){
   MMs[i,4] <- MM[[i]][[4]]
 }
 
-summary(lm(cumu.subs ~ MMs[,1]))
-summary(lm(cumu.subs ~ MMs[,2]))
-summary(lm(cumu.subs ~ MMs[,3]))
-summary(lm(cumu.subs ~ MMs[,4]))
-
+summary(lm(cumu3.subs ~ MMs[,1]))
+summary(lm(cumu3.subs ~ MMs[,2]))
+summary(lm(cumu3.subs ~ MMs[,3]))
+summary(lm(cumu3.subs ~ MMs[,4]))
 
 
 
@@ -124,12 +125,13 @@ summary(lm(cumu.subs ~ MMs[,4]))
 lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
 lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
 
-#models
-lnmeans_mod <- lm(lnmeans ~ cumu.subs)
-summary(lnmeans_mod)
-lnscales_mod <- lm(lnscales ~ cumu.subs)
-summary(lnscales_mod)
+scales <- tapply(area.subs, years.subs, function(x) lnscale(x))
+locs <- tapply(area.subs, years.subs, function(x) lnmean(x))
 
+locs_mod1 <- lm(locs ~ cumu3.subs)
+locs_mod2 <- lm(locs ~ sqrt(cumu3.subs))
+scales_mod1 <- lm(scales ~ cumu3.subs)
+scales_mod2 <- lm(scales ~ sqrt(cumu3.subs))
 #fitted lnorm pars
 lnparsfitted <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm")$estimate)
 
@@ -138,8 +140,8 @@ lnparsfitted <- tapply(area.subs, years.subs, function(x) fitdist(x, "lnorm")$es
 meanlog <- tapply(log(area.subs), years.subs, mean)
 sdlog <- tapply(log(area.subs), years.subs, sd)
 
-summary(lm(meanlog ~ cumu.subs))
-summary(lm(sdlog ~ cumu.subs))
+summary(lm(meanlog ~ cumu3.subs))
+summary(lm(sdlog ~ cumu3.subs))
 
 # #fitted norm pars truncated
 # norm.trunc <- matrix(ncol = 4, nrow = 17)
@@ -157,30 +159,16 @@ summary(lm(sdlog ~ cumu.subs))
 
 
 #calculate loglikelihood for each dist
+fun_pears<- tapply(area.subs, years.subs, function(x) pearsFUN(x))
 ll_pears<- tapply(area.subs, years.subs, function(x) loglikpears(x))
-
-ll_lnorm_fit <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
-
-ll_norm <- tapply(log(area.subs), years.subs, function(x) logLik(fitdist(x, "norm")))
-
 ll_gamma <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "gamma", start=list(shape = 1, rate = 0.1),lower=0.1)))
-
-ll_norm_trunc <- norm.trunc[,4]
-
+ll_lnorm_fit <- tapply(area.subs, years.subs, function(x) logLik(fitdist(x, "lnorm")))
 ll_lnorm_unfit <- numeric()
 for (i in 1:length(lnscales)){
   t <- which(years.subs == unique(years.subs)[i])
   ll_lnorm_unfit[i] <- sum(log(dlnorm(area.subs[t], meanlog=lnmeans[[i]], sdlog=lnscales[[i]])))
 }
 
-df <- data.frame(unique(years.subs), ll_norm, ll_norm_trunc, ll_lnorm_fit, ll_lnorm_unfit, ll_pears, ll_gamma)
-
-df <- melt(df, id.vars = "unique.years.subs.")
-
-ggplot(data = df, aes(x = unique.years.subs., y = value, group = variable)) +
-  geom_point(aes(shape=variable, col = variable)) +
-  theme(legend.title=element_blank()) +
-  labs(x = "year", y = "LogLik")
 
 #it seems like fitted preason or fitted log normal are best. Since fitted lognormal means that the function parameters are likelihood maximised, we can't calculate parameters from empiric mean and sd and have to correlate MLE with prec
 plot(Lnorm)

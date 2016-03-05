@@ -4,7 +4,7 @@ test <- F
 #Simulation parameters
 scenario <- c("low", "high", "neut") #scenario
 simle <- 120 #simulation length (cannot be changed!)
-simno <- 20 #number of simulations
+simno <- 100 #number of simulations
 ini_year <- 1971
 
 #SCENARIO LEVEL
@@ -12,8 +12,8 @@ for(k in 1:length(scenario)){
   #1.a) Global scenario variables
   scen <- scenario[k]
   sim_no <- 1 #Simulation counter
-  fires_all <- matrix(ncol = 4, nrow = 0) #dataframe for fire level fire record, will be written for each scenario
-  tab_all <- matrix(ncol = 4, nrow = 0) #dataframe for year level fire record
+  fires_all <- matrix(ncol = 4, nrow = 0) #matrix for fire level fire record, will be written for each scenario
+  tab_all <- matrix(ncol = 4, nrow = 0) #matrix for year level fire record
   
   #TIME SERIES LEVEL
   for (j in 1:simno){
@@ -60,11 +60,11 @@ for(k in 1:length(scenario)){
     loc <- numeric()
     scale <- numeric()
     for (i in 1:length(sim_cumu)){
-      sim_tab[i] <- exp(rtnorm(1, predict(mod_total, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(mod_total)),lower = log(min(total)), upper = log(max(total))))
-      loc[i] <- rtnorm(1, predict(lnmeans_mod, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(lnmeans_mod)), lower = min(lnmeans), upper = max(lnmeans))
-      scale[i] <- rtnorm(1, predict(lnscales_mod, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(lnscales_mod)), lower = min(lnscales), upper = max(lnscales))
+      sim_tab[i] <- (rtnorm(1, predict(mod_total, newdata = (data.frame("cumu3" = sim_cumu[i]))), sd(residuals(mod_total)), lower = sqrt(min(total)), upper = sqrt(max(total))))^2
+      loc[i] <- rtnorm(1, predict(lnmeans_mod, newdata = (data.frame("cumu3.subs" = sim_cumu[i]))), sd(residuals(lnmeans_mod)), lower = min(lnmeans), upper = max(lnmeans))
+      scale[i] <- rtnorm(1, predict(lnscales_mod, newdata = (data.frame("cumu3.subs" = sim_cumu[i]))), sd(residuals(lnscales_mod)), lower = min(lnscales), upper = max(lnscales))
     }
-
+    
     occu <- predict(mod_occ, newdata = data.frame("pr" = sim_cumu), type = "response")
     
     yr <- ini_year #Start year

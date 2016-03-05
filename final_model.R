@@ -1,7 +1,8 @@
 require(msm)
 require(raster)
 require(rgdal)
-
+require(compiler)
+enableJIT(3)
 #######################
 #1.) SCENARIO LEVEL####
 #######################
@@ -60,10 +61,11 @@ for(k in 1:length(scenario)){
     loc <- numeric()
     scale <- numeric()
     for (i in 1:length(sim_cumu)){
-      sim_tab[i] <- exp(rtnorm(1, predict(mod_total, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(mod_total)),lower = log(min(total)), upper = log(max(total))))
-      loc[i] <- rtnorm(1, predict(lnmeans_mod, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(lnmeans_mod)), lower = min(lnmeans), upper = max(lnmeans))
-      scale[i] <- rtnorm(1, predict(lnscales_mod, newdata = (data.frame("cumu" = sim_cumu[i]))), sd(residuals(lnscales_mod)), lower = min(lnscales), upper = max(lnscales))
+      sim_tab[i] <- (rtnorm(1, predict(tab_mod, newdata = (data.frame("cumu3" = sim_cumu[i]))), sd(residuals(tab_mod)), lower = sqrt(min(total)), upper = sqrt(max(total))))^2
+      loc[i] <- rtnorm(1, predict(locs_mod, newdata = (data.frame("cumu3.subs" = sim_cumu[i]))), sd(residuals(locs_mod)), lower = min(locs), upper = max(locs))
+      scale[i] <- rtnorm(1, predict(scales_mod, newdata = (data.frame("cumu3.subs" = sim_cumu[i]))), sd(residuals(scales_mod)), lower = min(scales), upper = max(scales))
     }
+    
     
     #2.d) Simulation of fire occurrence
     occu <- round(predict(mod_occ, newdata = data.frame("pr" = sim_cumu), type = "response"),3)
@@ -72,7 +74,7 @@ for(k in 1:length(scenario)){
     
     #i) Spatial variables
     tsf.df <- data.frame("tsf.ini" = tsf.ts[[28]][]) #Storage annual tsf
-    tsf_cur <- tsf.df[,1] #Initial TSF map
+    tsf_cur <- tsf.df[,1] + 1 #Initial TSF map
     fs.df <- data.frame(fire.scar.ts[]) #Store annual fire scar
     nf_cur <- rowSums(fs.df[,3:46])
     nf.df <- data.frame("nf.ini" = nf_cur)
@@ -106,7 +108,7 @@ for(k in 1:length(scenario)){
         
         #i) Predict burn probabilities
         for (l in 1: length(total_class)){
-          p[which(pyric_class == l)] <- round(predict(mod_probs[[l]],newdata = data.frame("yr" = tsf_cur[which(pyric_class == l)])),3)
+          p[which(pyric_class == l)] <- predict(mod_probs[[l]],newdata = data.frame("yr" = tsf_cur[which(pyric_class == l)]))
         }
         p[which(p > 1)] <- 1
         
@@ -177,8 +179,8 @@ for(k in 1:length(scenario)){
           d <- min(dists_a)/dists_a
           
           #ii) adjust for slope
-          elevDiff <- round((elev[pairs[,1]] - elev[pairs[,2]])/1000,3)
-          slopes <- round(elevDiff/dists_a,4)
+          elevDiff <- (elev[pairs[,1]] - elev[pairs[,2]])/1000
+          slopes <- elevDiff/dists_a
           slopes <- clamp(slopes, -1, 1)
           s <- 1 + slopes
           
@@ -252,10 +254,10 @@ for(k in 1:length(scenario)){
       names(fs.df)[which(names(fs.df) == "fire_scar")] <- paste0("fs_s", yr)
       
       #ii) Time since fire
-      tsf_cur <- tsf_cur +1
-      tsf_cur[which(fire_scar == 1)] <- 1
+      tsf_cur[which(fire_scar == 1)] <- 0
       tsf.df <- cbind(tsf.df, tsf_cur)
       names(tsf.df)[which(names(tsf.df) == "tsf_cur")] <- paste0("tsf_s", yr)
+      tsf_cur <- tsf_cur +1
       
       #iii) Fire Number
       nf_cur <- rowSums(fs.df[,(i+3):(i+46)])
@@ -270,26 +272,26 @@ for(k in 1:length(scenario)){
         r <- maskrast
         r[] <- tsf.df[,1]
         name_ras <- as.character(paste0("tsf_", scen, "_", sim_no,"_", 0))
-        writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii")  
+        writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii", overwrite = T)  
       }
       
       r <- maskrast
       r[] <- tsf.df[,i + 1]
       name_ras <- as.character(paste0("tsf_",scen, "_", sim_no,"_", i))
-      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii")
+      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii", overwrite = T)
       
       #6.d)
       if(length(nf.df[]) == 2){
       r <- maskrast
       r[] <- nf.df[,1]
       name_ras <- as.character(paste0("nf_",scen, "_", sim_no,"_", 0))
-      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii")
+      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii", overwrite = T)
       }
       
       r <- maskrast
       r[] <- nf.df[,i]
       name_ras <- as.character(paste0("nf_", scen, "_", sim_no,"_", i))
-      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii")
+      writeRaster(r, paste(output, name_ras, sep = "/"), format = "ascii", overwrite = T)
     }
     #6.d) Update Global variables
     fires_all <- rbind(fires_all, fires)

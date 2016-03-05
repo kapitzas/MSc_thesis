@@ -53,3 +53,32 @@ lnmean <- function(x){
   loc <- log(mean) - (0.5 * scale^2)
   return(loc)
 }
+
+#creating pdy files for ramas
+sc <- c("high", "low", "neut")
+
+for (k in 1:3){
+for (j in 1:20){
+  sink(file = paste0("/Users/Simon/Studium/MSC/Masterarbeit/data/test/", "C", sc[k], j, ".pdy"))
+  cat("Habitat Dynamics (version 4.1)", "\n", sep = "")
+  cat(paste0("Simon GDS", sc[k], "s", j),"\n",sep = "")
+  cat("\n", sep = "")
+  cat("\n", sep = "")
+  cat("\n", sep = "")
+  cat("\n", sep = "")
+  cat(paste0("D:\\Simon GDS\\C",sc[k], "_s", j, ".mp"),"\n", sep = "")
+  cat("POP","\n", sep = "")
+  cat("POP","\n", sep = "")
+  cat("POP","\n", sep = "")
+  cat("76","\n", sep = "")
+          
+  for (i in 1:76){
+    cat(paste0("D:\\Simon GDS\\C",sc[k], "_s", j, "_", i, ".ptc"),"\n", sep = "")
+    cat(i, "\n", sep = "")
+    cat("at mid-point", "\n", sep = "")
+    cat("at mid-point", "\n", sep = "")
+    cat("at mid-point", "\n", sep = "")
+    }
+  sink()
+}
+}

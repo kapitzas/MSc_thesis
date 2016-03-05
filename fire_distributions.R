@@ -33,64 +33,28 @@ max.size <- aggregate(all$Shape_Area, by = list(all$CalanderYe), FUN = "max")
 #annual burnt distr
 ab_ln <- fitdist(total.burned[,2], distr = "lnorm")
 
-#fire size dist
-require(poweRlaw)
-#filter years for whcih more than 8 fires have burned (required for parameter bootstraps)
-years.new <- years[n.feat > 8]
-all
-#determine power law functions for each year and bootstrap the determined parameters and calculate KS-p-value
-fs_pl <- list()
-boots <- list()
-gof <- vector()
-min <- vector()
-alpha <- vector()
-for (i in 1:length(years.new)){
-  fs_pl_temp <- conpl(all$Shape_Area[all$Shape_Area < quantile(all$Shape_Area, 0.95) & all$CalanderYe == years.new[i]])
-  fs_pl_temp$setXmin(estimate_xmin(fs_pl_temp))
-  fs_pl[i] <- fs_pl_temp
-  min[i] <- fs_pl_temp$xmin
-  alpha[i] <- fs_pl_temp$pars
-  print(i)
-  boots[[i]] <- bootstrap(fs_pl_temp, no_of_sims = 30)
-  gof[i] <- boots[[i]]$gof
-}
-
-#estimation of linearity between log(N) and log(fire size)
-years <- unique(all$CalanderYe)
-pvalue <- vector()
-for (i in 1:length(years)){
-s <- hist(all$Shape_Area[which(all$CalanderYe == years[i])], breaks = 20)
-  glm <- lm(log(s$counts)[is.finite(log(s$counts))] ~ log(s$mids)[is.finite(log(s$counts))])
-  if (!is.na(glm$coefficients[2]) & glm$coefficients[2] !=0){
-  pvalue[i] <- summary(glm)$coefficients[2,4]
-  }else{pvalue[i] <- NA}
-}
-
-lines(log(s$mids)[is.finite(log(s$counts))], predict(glm))
-
-
 #Filter cumulative precipitation for the modelled years
-pos <- match(all$CalanderYe, fire_clim$year) 
-precs <- fire_clim$yycumu[pos]
+pos <- match(unique(all$year), prec.stats$year) 
+precs <- prec.stats$yyycumu[pos]
 
 #colour ramp
-indices <- data.frame(precs, 1:19)
+indices <- data.frame(precs, 1:29)
 indices <- indices[order(precs),]
 pal <- colorRampPalette(c("lightblue", "black"))
-cl <- pal(19)
+cl <- pal(29)
 names(cl) <- indices$precs
 
 hist <- ggplot(data = all) + geom_histogram(data = all, aes(Shape_Area), bins = 200)  + xlim(0,0.01) + ylim(0,1000)
-
-
-for(i in indices$X1.19){
-x <- seq(fs_pl[[i]]$xmin, 0.1, length.out = 1000)
-hist <- hist + geom_line(aes(x,y, colour = cols), data = data.frame("x" = x, "y" = dplcon(x, xmin = fs_pl[[i]]$xmin, alpha = fs_pl[[i]]$pars), "cols" = names(cl)[i]))
-j = j +1
-}
-hist + scale_colour_manual(name = "Cumu. Prec. [mm]", values = cl) +   
-  theme(legend.position = c(0.9, 0.51), legend.key.size = unit(1, "cm")) +
-  xlab("Fire size [%]") + ylab("Frequency")
+# 
+# 
+# for(i in indices$X1.19){
+# x <- seq(fs_pl[[i]]$xmin, 0.1, length.out = 1000)
+# hist <- hist + geom_line(aes(x,y, colour = cols), data = data.frame("x" = x, "y" = dplcon(x, xmin = fs_pl[[i]]$xmin, alpha = fs_pl[[i]]$pars), "cols" = names(cl)[i]))
+# j = j +1
+# }
+# hist + scale_colour_manual(name = "Cumu. Prec. [mm]", values = cl) +   
+#   theme(legend.position = c(0.9, 0.51), legend.key.size = unit(1, "cm")) +
+#   xlab("Fire size [%]") + ylab("Frequency")
 
 ##analysis of relationships
 #burned vs count

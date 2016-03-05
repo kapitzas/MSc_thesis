@@ -2,6 +2,7 @@ require(msm)
 require(raster)
 require(rgdal)
 require(mixtools)
+require(MASS)
 #########################
 #II. Model estimation####
 #########################
@@ -54,53 +55,93 @@ for (i in 1:length(files_shp)){
   all <- rbind(all, f)
 }
 
-#ii) read and process precipitation data and attach to data frame
+#ii) read and process precipitation and enso data and attach to data frame
+enso <- read.csv("/Users/Simon/Studium/MSC/Masterarbeit/data/climate/BOM/southern_oscillation_index_1960_2015.csv")
+enso_means <- data.frame("enso" = rowSums(enso[,8:12])/4) #aggregate to July - November means
+enso_means$year <- enso$Year
 
 pre <- read.csv(paste0(path_climate, "IDCJAC0009_015611_1800_Data.csv"))
 prec.stats <- aggregate(pre$Rainfall.amount..millimetres., by = list(pre$Year), FUN = sum, na.rm = T)
 
 prec.stats$yycumu <- NA
+prec.stats$yyycumu <- NA
 for (i in 3:nrow(prec.stats)){
-  prec.stats$yycumu[i] <-  prec.stats$x[i] + prec.stats$x[i-1] + prec.stats$x[i-2] 
+  prec.stats$yycumu[i] <-  prec.stats$x[i-1] + prec.stats$x[i-2]   
+  prec.stats$yyycumu[i] <-  prec.stats$x[i] + prec.stats$x[i-1] + prec.stats$x[i-2] 
 }
-names(prec.stats) <- c("year", "prec", "yycumu")
+names(prec.stats) <- c("year", "prec", "yycumu", "yyycumu")
 pos <- match(all$year, prec.stats$year)
-all$cumu_prec <- prec.stats$yycumu[pos]
-
+pos.ens <- match(all$year, enso_means$year)
+all$prec <- prec.stats$prec[pos]
+all$cumuyy <- prec.stats$yycumu[pos]
+all$cumuyyy <- prec.stats$yyycumu[pos]
+all$enso <- enso_means$enso[pos.ens-1] #esno of previous year
 #2.) Model Total Area Burned vs Precipitation
-
+rm(enso)
 attach(all)
 #2.a) Aggregate Data
 
 total <- round(tapply(area/wide_area * 100, year, sum), digits = 3) #Total area burned per year [%]
-cumu <- tapply(cumu_prec, year, function(x) unique(x)) #Cumulative Precipitation per year
+cumu2 <- tapply(cumuyy, year, function(x) unique(x)) #Cumulative Precipitation per year
+cumu3 <- tapply(cumuyyy, year, function(x) unique(x)) #Cumulative Precipitation per year
+precan <- tapply(prec, year, function(x) unique(x)) #Cumulative Precipitation per year
+ensoan <- tapply(enso, year, function(x) unique(x)) #Cumulative Precipitation per year
+#2.b) Model comparison
+tab_mod1 <- lm(log(total) ~ cumu3)
+tab_mod2 <- lm(sqrt(total) ~ sqrt(cumu3))
+tab_mod3 <- lm(sqrt(total) ~ sqrt(cumu3) + ensoan)
+tab_mod4 <- lm(sqrt(total) ~ sqrt(cumu2))
+stepmod <- stepAIC(mod4)
+summary(tab_mod1)
+summary(tab_mod2)
+summary(tab_mod3)
+summary(tab_mod4)
+summary(stepmod)
 
-#2.b) Model
-mod_total <- lm(log(total) ~ cumu)
+tab_mod <- tab_mod2
 
 #3.) Model Fire Distribution Parameters vs Precipitation
 
 #3.a) Aggregate and subset data (only years with sufficeitn data)
-area.subs <- area[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
-years.subs <- year[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))]
-cumu.subs <- unique(cumu_prec[which(year%in%c(1976, 1982,1983, 1984, 2000:2012))])
-
+s <- tapply(area, year, FUN = length)
+subyrs <- c(1976, 1982,1983, 1984, 2000:2005, 2008:2012)
+area.subs <- area[which(year%in%subyrs)]
+years.subs <- year[which(year%in%subyrs)]
+precan.subs <- unique(prec[which(year%in%subyrs)])
+cumu2.subs <- unique(cumuyy[which(year%in%subyrs)])
+cumu3.subs <- unique(cumuyyy[which(year%in%subyrs)])
 #3.b) Determine unfitted lnorm pars
-lnscales <- tapply(area.subs, years.subs, function(x) lnscale(x))
-lnmeans <- tapply(area.subs, years.subs, function(x) lnmean(x))
+scales <- tapply(area.subs, years.subs, function(x) lnscale(x))
+locs <- tapply(area.subs, years.subs, function(x) lnmean(x))
 
 #3.c) Model
-lnmeans_mod <- lm(lnmeans ~ cumu.subs)
-lnscales_mod <- lm(lnscales ~ cumu.subs)
+locs_mod1 <- lm(locs ~ cumu3.subs)
+locs_mod2 <- lm(locs ~ sqrt(cumu3.subs))
+scales_mod1 <- lm(scales ~ cumu3.subs)
+scales_mod2 <- lm(scales ~ sqrt(cumu3.subs))
+summary(locs_mod1)
+summary(locs_mod2)
+summary(scales_mod1)
+summary(scales_mod2)
 
+plot(locs ~ cumu3.subs)
+points(cumu3.subs, predict(locs_mod1), col = "red")
+points(cumu3.subs, predict(locs_mod2), col = "green")
+plot(scales ~ cumu3.subs)
+points(cumu3.subs, predict(scales_mod1), col = "red")
+points(cumu3.subs, predict(scales_mod2), col = "green")
+
+locs_mod <- locs_mod2
+scales_mod <- scales_mod1
+summary(mod_probs[[5]])
 #4.) Model fire occurance vs precipitation
-
+summary(mod_occ)
 #4.a) Aggregation of data
 yrs <- 1970:2015
 oc <- 1:length(yrs)
 oc[match(unique(year), yrs)] <- 1
 oc[-match(unique(year), yrs)] <- 0
-pr <- prec.stats$yycumu[which(prec.stats$year%in%yrs)]
+pr <- prec.stats$yyycumu[which(prec.stats$year%in%yrs)]
 
 #4.b) Model
 mod_occ <- glm(oc ~ pr, family = "binomial")
@@ -148,7 +189,7 @@ for (i in 1: length(total_class)){
     mod_probs[[i]] <- tryCatch(nls(cumu ~ c * exp(-(yr/b)^a), data = py, start = list(a = sample(-5:5, 1), b = sample(0:30,1), c = sample(0:1,1))), error = function(e) NA)
   }
 }
-
+summary(mod_probs[[5]])
 #6.) Estimation of precipitation denisty distribution in reference time psan
 attach(prec.stats)
 
@@ -182,12 +223,6 @@ decr_30_90 <- (low_prec_90 - low_prec_30) / years_90
 incr <- c(rep(incr_15_30, times = years_30), rep(incr_30_90, times = years_90))
 decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
 neut <- rep(0, 75)
-
+summary(mod_occ)
 detach(prec.stats)
 detach(all)
-# plot(density(area), xlim = c(0,100))
-# lines(density(fires_all[,4]), col = "red")
-# plot(density)
-# plot(density(lnscales))
-# lines(density(predict(lnscales_mod) + rnorm(length(lnscales), 0, sd(residuals(lnscales_mod)))))
-# fires_all
