@@ -1,8 +1,66 @@
-require(msm)
-require(raster)
-require(rgdal)
-require(mixtools)
-require(MASS)
+
+
+######################################
+####PREAMB: USERDEFINED FUNCTIONS#####
+######################################
+#FUNCTION TO CALCULATE PLANAR, UNPROJECTED DISTANCE (PLANAR UNITS) BETWEEN CELLS
+dist <- function(from, to, ncol, nrow){
+  row_from <- ceiling(from/ncol)
+  col_from <- from - ((row_from - 1) * ncol)
+  row_to <- ceiling(to/ncol)
+  col_to <- to - ((row_to - 1) * ncol)
+  dist_y <- row_from - row_to
+  dist_x <- col_from - col_to
+  distance <- sqrt(dist_x^2 + dist_y^2)
+  return(distance)
+}
+
+#FUNCTION TO CLAMP VALUES
+clamp <- function(x, min, max) {
+  x[which(x<min)] <- min
+  x[which(x>max)] <- max
+  return(x)
+}
+
+#LOGLIK OF PEARSON FITS
+loglikpears <- function(x){
+  temp <- pearsonMSC(x)
+  max(temp$logLik)
+}
+
+#PEARSON FUNCTION WITH HIGHEST AIC
+pearsFUN <- function(x){
+  temp <- pearsonMSC(x)
+  temp$Best$AIC
+}
+
+#95% CI
+ci <- function(x){
+  mean <- mean(x)
+  upper <- mean + 1.96 * sd(x)/sqrt(length(x))
+  lower <- mean - 1.96 * sd(x)/sqrt(length(x))
+  return(c(lower, mean, upper))
+}
+
+#FUNCTION TO ESTIMATE EMPIRIC LOGS
+lnscale <- function(x){
+  variance <- (sd(x))^2
+  mean <- mean(x)
+  scale <- sqrt(log(1+ variance/mean^2))
+  return(scale)
+}
+
+#FUNCTION TO ESTIMATE EMPIRIC LOGMEAN
+lnmean <- function(x){
+  variance <- (sd(x))^2
+  mean <- mean(x)
+  scale <- sqrt(log(1+ variance/mean^2))
+  loc <- log(mean) - (0.5 * scale^2)
+  return(loc)
+}
+
+
+
 #########################
 #II. Model estimation####
 #########################
@@ -76,31 +134,31 @@ all$prec <- prec.stats$prec[pos]
 all$cumuyy <- prec.stats$yycumu[pos]
 all$cumuyyy <- prec.stats$yyycumu[pos]
 all$enso <- enso_means$enso[pos.ens-1] #esno of previous year
-#2.) Model Total Area Burned vs Precipitation
 rm(enso)
+
+#2.) Model tab
 attach(all)
 #2.a) Aggregate Data
-
-total <- round(tapply(area/wide_area * 100, year, sum), digits = 3) #Total area burned per year [%]
+tab <- round(tapply(area/wide_area * 100, year, sum), digits = 3) #Total area burned per year [%]
 cumu2 <- tapply(cumuyy, year, function(x) unique(x)) #Cumulative Precipitation per year
 cumu3 <- tapply(cumuyyy, year, function(x) unique(x)) #Cumulative Precipitation per year
 precan <- tapply(prec, year, function(x) unique(x)) #Cumulative Precipitation per year
 ensoan <- tapply(enso, year, function(x) unique(x)) #Cumulative Precipitation per year
+
 #2.b) Model comparison
-tab_mod1 <- lm(log(total) ~ cumu3)
-tab_mod2 <- lm(sqrt(total) ~ sqrt(cumu3))
-tab_mod3 <- lm(sqrt(total) ~ sqrt(cumu3) + ensoan)
-tab_mod4 <- lm(sqrt(total) ~ sqrt(cumu2))
-stepmod <- stepAIC(mod4)
+tab_mod1 <- lm(log(tab) ~ cumu3)
+tab_mod2 <- lm(sqrt(tab) ~ sqrt(cumu3))
+tab_mod3 <- lm(sqrt(tab) ~ sqrt(cumu3) + ensoan)
+tab_mod4 <- lm(sqrt(tab) ~ sqrt(cumu2))
+
 summary(tab_mod1)
 summary(tab_mod2)
 summary(tab_mod3)
 summary(tab_mod4)
-summary(stepmod)
 
 tab_mod <- tab_mod2
 
-#3.) Model Fire Distribution Parameters vs Precipitation
+#3.) Model loc and scale
 
 #3.a) Aggregate and subset data (only years with sufficeitn data)
 s <- tapply(area, year, FUN = length)
@@ -133,9 +191,8 @@ points(cumu3.subs, predict(scales_mod2), col = "green")
 
 locs_mod <- locs_mod2
 scales_mod <- scales_mod1
-summary(mod_probs[[5]])
+
 #4.) Model fire occurance vs precipitation
-summary(mod_occ)
 #4.a) Aggregation of data
 yrs <- 1970:2015
 oc <- 1:length(yrs)
@@ -144,14 +201,14 @@ oc[-match(unique(year), yrs)] <- 0
 pr <- prec.stats$yyycumu[which(prec.stats$year%in%yrs)]
 
 #4.b) Model
-mod_occ <- glm(oc ~ pr, family = "binomial")
+fo_mod <- glm(oc ~ pr, family = "binomial")
 
 #5.) Model Fire probabilities vs Time Since Fire
 
 #5.a) Aggregation of Data
 
 #i) Identification of pyric classes
-haz_time <-as.numeric(dimnames(total)[[1]]) ##for estimation of hazard function
+haz_time <-as.numeric(dimnames(tab)[[1]]) ##for estimation of hazard function
 haz_fs <- data.frame(fire.scar.ts[])
 pyric_class <- rowSums(haz_fs) #determine number of fires on each cell
 pyric_class[which(pyric_class%in%c(6,7))] <- 5
@@ -189,7 +246,9 @@ for (i in 1: length(total_class)){
     mod_probs[[i]] <- tryCatch(nls(cumu ~ c * exp(-(yr/b)^a), data = py, start = list(a = sample(-5:5, 1), b = sample(0:30,1), c = sample(0:1,1))), error = function(e) NA)
   }
 }
-summary(mod_probs[[5]])
+
+detach(all)
+
 #6.) Estimation of precipitation denisty distribution in reference time psan
 attach(prec.stats)
 
@@ -223,6 +282,5 @@ decr_30_90 <- (low_prec_90 - low_prec_30) / years_90
 incr <- c(rep(incr_15_30, times = years_30), rep(incr_30_90, times = years_90))
 decr <- c(rep(decr_15_30, times = years_30), rep(decr_30_90, times = years_90))
 neut <- rep(0, 75)
-summary(mod_occ)
+
 detach(prec.stats)
-detach(all)

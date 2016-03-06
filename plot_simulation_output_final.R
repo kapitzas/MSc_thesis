@@ -1,6 +1,6 @@
 require(ggplot2)
-sf <- read.csv("/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out2/fires_high.csv")
-stb <- read.csv("/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out2/tab_high.csv")
+sf <- read.csv("/Users/Simon/Studium/MSC/Masterarbeit/data/non_spatial_new_model_out/fires_sim_neut.csv")
+stb <- read.csv("/Users/Simon/Studium/MSC/Masterarbeit/data/non_spatial_new_model_out/tab_sim_neut.csv")
 
 #tab simulations
 ci_stb <- aggregate(stb$tab_target, by = list(c(stb$yr)), FUN =  function(x) ci(x))
@@ -61,7 +61,7 @@ ggplot(data = df,aes(year, median)) +
 
 # density plots of real and predicted fire sizes (logs)
 # s <- sample(1:length(sf$precip[which(sf$yr < 2015)]), 10000)
-
+attach(all)
 ggplot() +
   geom_density(aes(log(area[which(year < 2015)])), alpha = .2, fill = "red") +
   geom_density(aes(log(sf$fire_target[which(sf$yr < 2015)])), fill = "blue", alpha = 0.2)
@@ -69,7 +69,7 @@ ggplot() +
 #density plots of real and predicted tab values
 s <- 1:length(stb$precip[which(stb$yr < 2015)])
 ggplot() +
-  geom_density(aes(log(total)), alpha = .2, fill = "red") +
+  geom_density(aes(log(tab)), alpha = .2, fill = "red") +
   geom_density(aes(log(stb$tab_target[which(stb$yr < 2016)]/sum(na.omit(cell_size[]))*100)), fill = "blue", alpha = 0.2)
 
 #density plots of real and predicted prec values
@@ -93,12 +93,12 @@ ggplot() +
 #Plot tab
 attach(all)
 ggplot() +
-  geom_density(aes(log(total[which(unique(year) <= 2005 & unique(year) >= 1986)]/100 * sum(cell_size, na.rm = T))) , alpha = .2, fill = "red") +
+  geom_density(aes(log(tab[which(unique(year) <= 2005 & unique(year) >= 1986)]/100 * sum(cell_size, na.rm = T))) , alpha = .2, fill = "red") +
   geom_density(aes(log(stb$tab_target[which(stb$yr < 2016)])), fill = "blue", alpha = 0.2)
 
 # rm(list = ls(all = T))
 
-df <- data.frame(total, cumu3)
+df <- data.frame(tab, cumu3)
 preds1 <- predict(mod1, newdata = data.frame("cumu3" = 600:2500), se.fit = T)
 preds3 <- predict(mod3, newdata = data.frame("cumu3" = 600:2500), se.fit = T)
 cumu3 <- 600:2500
@@ -114,5 +114,5 @@ ggplot() +
   geom_ribbon(data = dfmod, aes(x=cumu3, ymax=upper_mod3, ymin=lower_mod3), fill="red", alpha=.3) +
   geom_line(data = dfmod, aes(x = cumu3, y = preds_mod1), col = "black", alpha = .4) + 
   geom_line(data = dfmod, aes(x = cumu3, y = preds_mod3), col = "black", alpha = .4) +
-  geom_point(data = df, aes(cumu3, total))
+  geom_point(data = df, aes(cumu3, tab))
 

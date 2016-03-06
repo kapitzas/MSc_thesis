@@ -1,7 +1,8 @@
-require(msm)
 require(raster)
 require(rgdal)
-
+require(msm)
+require(MASS)
+require(compiler)
 ##########################
 #I. MODEL DEFINITIONS#####
 ##########################
@@ -16,13 +17,25 @@ path_tsf_rasters <- "/Users/Simon/Studium/MSC/Masterarbeit/data/fire/tsf rasteri
 files_shp <- list.files(path_shp, pattern = "*.shp$")
 files_tsf <- list.files(path_tsf_rasters, pattern = "*.asc$")
 files_fs <- list.files(path_fire_rasters, pattern = "*.asc$")
-output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out2" #output path for fire record and rasters
+
+
 
 #1.b) Simulation parameters
+spatial <- T
+
+if (spatial == T){
+output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/new_model_out" #output path for fire record and rasters
 scenario <- c("low", "high", "neut") #scenario
 simle <- 75 #simulation length (cannot be changed!)
 simno <- 20 #number of simulations
 ini_year <- 2016
+}
+if (spatial == F){
+output <- "/Users/Simon/Studium/MSC/Masterarbeit/data/non_spatial_new_model_out" #output path for fire record and rasters
+simle <- 120 #simulation length (cannot be changed!)
+simno <- 100 #number of simulations
+ini_year <- 1971
+}
 
 #1.c) Spatial constants
 cell_size <- raster("/Users/Simon/Studium/MSC/Masterarbeit/data/cell_size.asc")

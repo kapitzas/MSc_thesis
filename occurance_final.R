@@ -1,12 +1,11 @@
 attach(all)
 head(all)
-year
 no_of_fires <- tapply(area, year, length)
 yrs <- 1970:2015
 oc <- 1:length(yrs)
 oc[match(unique(year), yrs)] <- 1
 oc[-match(unique(year), yrs)] <- 0
-yrs
+
 
 pr <- prec.stats$yycumu[which(prec.stats$year%in%yrs)]
 
